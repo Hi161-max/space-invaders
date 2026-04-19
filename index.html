@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Space Invaders Reloaded</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: #06060f; overflow: hidden; font-family: Arial, sans-serif; }
+#si-wrapper { width: 100vw; height: 100vh; display: flex; flex-direction: column; background: #06060f; }
+#si-menu { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; gap: 16px; }
+#si-title { font-size: clamp(28px,5vw,48px); font-weight: bold; color: #fff; letter-spacing: 6px; text-shadow: 0 0 30px rgba(130,80,255,0.9); margin-bottom: 4px; }
+#si-subtitle { font-size: 13px; color: rgba(255,255,255,0.45); letter-spacing: 3px; margin-bottom: 12px; }
+.mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: min(380px, 90vw); }
+.mode-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 14px 16px; cursor: pointer; text-align: left; transition: all 0.2s; }
+.mode-btn:hover { background: rgba(130,80,255,0.25); border-color: rgba(130,80,255,0.7); }
+.mode-btn .mb-title { font-size: 15px; font-weight: bold; color: #fff; }
+.mode-btn .mb-desc { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 4px; }
+.mb-classic { border-color: rgba(80,200,255,0.4); }
+.mb-blitz   { border-color: rgba(255,100,100,0.4); }
+.mb-wave    { border-color: rgba(100,255,150,0.4); }
+.mb-boss    { border-color: rgba(255,180,50,0.4); }
+#si-game { display: none; flex-direction: column; width: 100%; height: 100%; position: relative; }
+#si-hud { display: flex; justify-content: space-between; align-items: center; padding: 6px 16px; background: rgba(0,0,0,0.75); font-size: 13px; color: #fff; flex-shrink: 0; z-index: 10; gap: 8px; flex-wrap: wrap; }
+#si-canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+#si-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+#si-challenges { position: absolute; top: 8px; left: 10px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; z-index: 5; }
+.challenge-pill { background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 3px 10px; font-size: 10px; color: rgba(255,255,255,0.7); white-space: nowrap; }
+.challenge-pill.done { border-color: rgba(100,255,150,0.6); color: #64ff96; }
+#si-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.82); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 20; }
+#si-overlay h2 { color: #fff; font-size: 32px; font-weight: bold; }
+#si-overlay p { color: rgba(255,255,255,0.6); font-size: 14px; }
+.ov-btn { background: rgba(130,80,255,0.3); border: 1px solid rgba(130,80,255,0.6); border-radius: 8px; padding: 10px 28px; color: #fff; font-size: 14px; cursor: pointer; transition: all 0.2s; }
+.ov-btn:hover { background: rgba(130,80,255,0.6); }
+
+/* SHOP */
+#si-shop { position: absolute; inset: 0; background: rgba(0,0,0,0.92); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px; z-index: 25; padding: 20px; }
+#si-shop h2 { color: #ffcc00; font-size: 26px; font-weight: bold; letter-spacing: 3px; }
+.shop-pizza { font-size: 22px; color: #ffcc00; margin-bottom: 4px; }
+.shop-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; width: min(600px, 95vw); }
+.shop-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 16px 12px; text-align: center; transition: all 0.2s; }
+.shop-card:hover { background: rgba(255,204,0,0.1); border-color: rgba(255,204,0,0.5); }
+.shop-card .sc-icon { font-size: 28px; margin-bottom: 6px; }
+.shop-card .sc-name { font-size: 13px; font-weight: bold; color: #fff; margin-bottom: 4px; }
+.shop-card .sc-desc { font-size: 10px; color: rgba(255,255,255,0.5); margin-bottom: 10px; line-height: 1.4; }
+.shop-card .sc-level { font-size: 10px; color: #ffcc00; margin-bottom: 6px; }
+.shop-btn { background: rgba(255,204,0,0.2); border: 1px solid rgba(255,204,0,0.5); border-radius: 6px; padding: 6px 14px; color: #ffcc00; font-size: 12px; cursor: pointer; transition: all 0.2s; width: 100%; }
+.shop-btn:hover:not(:disabled) { background: rgba(255,204,0,0.4); }
+.shop-btn:disabled { opacity: 0.35; cursor: default; }
+.shop-continue { background: rgba(100,255,150,0.2); border: 1px solid rgba(100,255,150,0.5); border-radius: 8px; padding: 10px 32px; color: #64ff96; font-size: 15px; cursor: pointer; transition: all 0.2s; margin-top: 4px; }
+.shop-continue:hover { background: rgba(100,255,150,0.35); }
+
+/* boss level badge */
+#boss-level-badge { position: absolute; top: 8px; right: 10px; background: rgba(0,0,0,0.75); border: 1px solid rgba(255,180,50,0.5); border-radius: 20px; padding: 4px 14px; font-size: 12px; color: #ffcc00; pointer-events: none; z-index: 5; display: none; }
+
+#si-mobile-btns { display: none; justify-content: space-between; align-items: center; padding: 8px 16px; background: rgba(0,0,0,0.85); flex-shrink: 0; }
+.mob-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 10px 24px; color: #fff; font-size: 20px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="si-wrapper">
+  <div id="si-menu">
+    <div id="si-title">SPACE INVADERS</div>
+    <div id="si-subtitle">RELOADED</div>
+    <div class="mode-grid">
+      <div class="mode-btn mb-classic" onclick="startGame('classic')"><div class="mb-title">Classic</div><div class="mb-desc">Original waves, modern visuals</div></div>
+      <div class="mode-btn mb-blitz"   onclick="startGame('blitz')">  <div class="mb-title">Blitz</div>  <div class="mb-desc">60-second speed rush</div></div>
+      <div class="mode-btn mb-wave"    onclick="startGame('wave')">   <div class="mb-title">Endless</div><div class="mb-desc">Waves get harder forever</div></div>
+      <div class="mode-btn mb-boss"    onclick="startGame('boss')">   <div class="mb-title">Boss Rush</div><div class="mb-desc">Beat bosses, earn pizza, upgrade!</div></div>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:10px;">Arrow keys / A D to move &nbsp;|&nbsp; Space to shoot</div>
+  </div>
+
+  <div id="si-game">
+    <div id="si-hud">
+      <span>Score: <b id="hud-score">0</b></span>
+      <span id="hud-mode" style="letter-spacing:2px;">CLASSIC</span>
+      <span id="hud-pizza" style="display:none;">🍕 <b id="hud-pizza-count">0</b></span>
+      <span>Lives: <span id="hud-lives">●●●</span></span>
+    </div>
+    <div id="si-canvas-wrap">
+      <canvas id="si-canvas"></canvas>
+      <div id="si-challenges">
+        <div class="challenge-pill" id="ch1">Streak: 0/10</div>
+        <div class="challenge-pill" id="ch2">No damage this wave</div>
+        <div class="challenge-pill" id="ch3">Score: 0/500</div>
+      </div>
+      <div id="boss-level-badge">BOSS LVL <span id="boss-lvl-num">1</span></div>
+      <div id="si-shop">
+        <div class="shop-pizza">🍕 <span id="shop-pizza-display">0</span> Pizza Slices</div>
+        <h2>UPGRADE SHOP</h2>
+        <div class="shop-grid">
+          <div class="shop-card">
+            <div class="sc-icon">⚡</div>
+            <div class="sc-name">Speed Boost</div>
+            <div class="sc-desc">Move faster across the battlefield</div>
+            <div class="sc-level" id="upg-speed-lvl">Level 0 / 5</div>
+            <button class="shop-btn" id="btn-speed" onclick="buyUpgrade('speed')">🍕 2 slices</button>
+          </div>
+          <div class="shop-card">
+            <div class="sc-icon">🔥</div>
+            <div class="sc-name">Damage Up</div>
+            <div class="sc-desc">Shots deal more damage per hit</div>
+            <div class="sc-level" id="upg-dmg-lvl">Level 0 / 5</div>
+            <button class="shop-btn" id="btn-dmg" onclick="buyUpgrade('dmg')">🍕 2 slices</button>
+          </div>
+          <div class="shop-card">
+            <div class="sc-icon">🛡️</div>
+            <div class="sc-name">Reinforced Armour</div>
+            <div class="sc-desc">Extra hits before your ship is destroyed</div>
+            <div class="sc-level" id="upg-armour-lvl">Level 0 / 3</div>
+            <button class="shop-btn" id="btn-armour" onclick="buyUpgrade('armour')">🍕 3 slices</button>
+          </div>
+          <div class="shop-card">
+            <div class="sc-icon">🚀</div>
+            <div class="sc-name">Rapid Fire</div>
+            <div class="sc-desc">Fire bullets faster without cooldown</div>
+            <div class="sc-level" id="upg-rapid-lvl">Level 0 / 4</div>
+            <button class="shop-btn" id="btn-rapid" onclick="buyUpgrade('rapid')">🍕 2 slices</button>
+          </div>
+          <div class="shop-card">
+            <div class="sc-icon">💥</div>
+            <div class="sc-name">Triple Shot</div>
+            <div class="sc-desc">Fire 3 bullets in a spread pattern</div>
+            <div class="sc-level" id="upg-triple-lvl">Level 0 / 1</div>
+            <button class="shop-btn" id="btn-triple" onclick="buyUpgrade('triple')">🍕 5 slices</button>
+          </div>
+          <div class="shop-card">
+            <div class="sc-icon">❤️</div>
+            <div class="sc-name">Restore Life</div>
+            <div class="sc-desc">Refill one life (max 3)</div>
+            <div class="sc-level" id="upg-life-lvl">Current: <span id="upg-life-cur">3</span> lives</div>
+            <button class="shop-btn" id="btn-life" onclick="buyUpgrade('life')">🍕 4 slices</button>
+          </div>
+        </div>
+        <button class="shop-continue" onclick="closeShop()">FIGHT NEXT BOSS ➜</button>
+      </div>
+      <div id="si-overlay">
+        <h2 id="ov-title">GAME OVER</h2>
+        <p id="ov-score">Score: 0</p>
+        <p id="ov-pizza" style="color:#ffcc00;font-size:13px;"></p>
+        <p id="ov-challenges" style="font-size:12px;color:rgba(100,255,150,0.8);"></p>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+          <button class="ov-btn" onclick="startGame(currentMode)">Play Again</button>
+          <button class="ov-btn" onclick="showMenu()" style="background:rgba(255,255,255,0.05);">Menu</button>
+        </div>
+      </div>
+    </div>
+    <div id="si-mobile-btns">
+      <button class="mob-btn" id="mob-left">←</button>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <button class="mob-btn" id="mob-up" style="padding:6px 20px;font-size:14px;">↑</button>
+        <button class="mob-btn" id="mob-down" style="padding:6px 20px;font-size:14px;">↓</button>
+      </div>
+      <button class="mob-btn" id="mob-fire">FIRE</button>
+      <button class="mob-btn" id="mob-right">→</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('si-canvas');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0;
+
+function resize() {
+  const wrap = document.getElementById('si-canvas-wrap');
+  W = wrap.clientWidth; H = wrap.clientHeight;
+  canvas.width = W; canvas.height = H;
+}
+window.addEventListener('resize', () => { resize(); if(gameState) gameState.player.y = H - 55; });
+
+let currentMode = 'classic';
+let gameState = null, animId = null, keys = {}, touches = {};
+let lastTime = 0;
+let shotCooldown = 0;
+
+// Persistent upgrades across boss levels
+let upgrades = { speed:0, dmg:0, armour:0, rapid:0, triple:0 };
+let pizzaSlices = 0;
+let bossLevel = 1;
+
+const UPGRADE_MAX = { speed:5, dmg:5, armour:3, rapid:4, triple:1 };
+const UPGRADE_COST = { speed:2, dmg:2, armour:3, rapid:2, triple:5, life:4 };
+
+const COLORS = {
+  classic: ['#50c8ff','#a050ff','#ff5080','#50ffa0'],
+  blitz:   ['#ff6060','#ff9020','#ffcc00','#ff50a0'],
+  wave:    ['#60ff80','#20ffcc','#60c0ff','#a0ff40'],
+  boss:    ['#ffcc00','#ff8020','#ff4060','#c050ff','#a0ff40','#c050ff']
+};
+
+// Boss definitions per level
+const BOSS_CONFIGS = [
+  { name:'Slime King',    color:'#50ffa0', size:55, hp:25,  speed:1.2, shotRate:70, shotCount:1, pattern:'side' },
+  { name:'Fire Drake',    color:'#ff6020', size:65, hp:40,  speed:1.5, shotRate:55, shotCount:2, pattern:'side' },
+  { name:'Void Eye',      color:'#a050ff', size:70, hp:60,  speed:1.8, shotRate:50, shotCount:3, pattern:'spread' },
+  { name:'Iron Titan',    color:'#80c0ff', size:80, hp:90,  speed:1.4, shotRate:45, shotCount:2, pattern:'aimed' },
+  { name:'Plasma Queen',  color:'#ff50c0', size:75, hp:120, speed:2.0, shotRate:40, shotCount:4, pattern:'spread' },
+  { name:'Dark Emperor',  color:'#ffcc00', size:90, hp:160, speed:2.2, shotRate:35, shotCount:5, pattern:'all' },
+  { name:'Cosmic Horror', color:'#ff4040', size:100,hp:220, speed:2.5, shotRate:30, shotCount:6, pattern:'all' },
+];
+
+function getBossConfig(level) {
+  if (level <= BOSS_CONFIGS.length) return BOSS_CONFIGS[level-1];
+  // Beyond defined bosses: scale up the last one
+  const base = BOSS_CONFIGS[BOSS_CONFIGS.length-1];
+  const extra = level - BOSS_CONFIGS.length;
+  return { ...base, name: 'Omega Boss Lv'+(level), hp: base.hp + extra*80, speed: base.speed + extra*0.3, shotRate: Math.max(20, base.shotRate - extra*3), shotCount: base.shotCount + extra, size: Math.min(110, base.size + extra*3) };
+}
+
+function alienShape(type, x, y, size, color, t) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.translate(0, Math.sin(t*3+x*0.05)*1.5);
+  ctx.fillStyle=color; ctx.shadowColor=color; ctx.shadowBlur=10;
+  if (type===0) {
+    ctx.beginPath(); ctx.ellipse(0,0,size*0.7,size*0.5,0,0,Math.PI*2); ctx.fill();
+    for (let s of [-1,1]) { ctx.beginPath(); ctx.moveTo(s*size*0.7,-size*0.2); ctx.lineTo(s*size*1.1,-size*0.6); ctx.lineTo(s*size*0.9,-size*0.7); ctx.lineWidth=2; ctx.strokeStyle=color; ctx.stroke(); }
+    ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(-size*0.25,-size*0.1,size*0.13,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(size*0.25,-size*0.1,size*0.13,0,Math.PI*2); ctx.fill();
+  } else if (type===1) {
+    ctx.beginPath(); ctx.moveTo(0,-size*0.7); ctx.bezierCurveTo(size*0.6,-size*0.3,size*0.6,size*0.3,0,size*0.5); ctx.bezierCurveTo(-size*0.6,size*0.3,-size*0.6,-size*0.3,0,-size*0.7); ctx.fill();
+    for (let i=-1;i<=1;i++) { ctx.beginPath(); ctx.moveTo(i*size*0.3,size*0.45); ctx.lineTo(i*size*0.5,size*0.9); ctx.lineWidth=2; ctx.strokeStyle=color; ctx.stroke(); }
+  } else {
+    ctx.beginPath(); ctx.arc(0,0,size*0.6,Math.PI,0); ctx.closePath(); ctx.fill();
+    for (let i=-2;i<=2;i++) { const w=Math.sin(t*4+i)*size*0.15; ctx.beginPath(); ctx.moveTo(i*size*0.25,size*0.1); ctx.quadraticCurveTo(i*size*0.3+w,size*0.5,i*size*0.2,size*0.8); ctx.lineWidth=1.5; ctx.strokeStyle=color; ctx.stroke(); }
+  }
+  ctx.restore();
+}
+
+function drawBoss(boss, t) {
+  ctx.save(); ctx.translate(boss.x, boss.y);
+  const cfg = boss.cfg;
+  const r = boss.hp/boss.maxHp;
+  const color = cfg.color;
+  const sz = cfg.size;
+  ctx.fillStyle=color; ctx.shadowColor=color; ctx.shadowBlur=25;
+
+  // Different boss shapes per level
+  const shape = (bossLevel-1) % 4;
+  if (shape===0) {
+    // Blob
+    ctx.beginPath(); ctx.ellipse(0,0,sz,sz*0.7,0,0,Math.PI*2); ctx.fill();
+    for (let i=-2;i<=2;i++) { const w=Math.sin(t*3+i*0.8)*15; ctx.beginPath(); ctx.moveTo(i*sz*0.4,sz*0.6); ctx.quadraticCurveTo(i*sz*0.5+w,sz*0.9,i*sz*0.35,sz*1.15); ctx.lineWidth=5; ctx.strokeStyle=color; ctx.stroke(); }
+  } else if (shape===1) {
+    // Spiked
+    for (let i=0;i<8;i++) { const a=(Math.PI*2/8)*i+t*0.5; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(a)*sz*1.1,Math.sin(a)*sz*1.1); ctx.lineWidth=8; ctx.strokeStyle=color; ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(0,0,sz*0.7,0,Math.PI*2); ctx.fill();
+  } else if (shape===2) {
+    // Eye
+    ctx.beginPath(); ctx.arc(0,0,sz,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(0,0,sz*0.5,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=color; ctx.shadowBlur=30;
+    const ex=Math.cos(t)*sz*0.2, ey=Math.sin(t)*sz*0.2;
+    ctx.beginPath(); ctx.arc(ex,ey,sz*0.25,0,Math.PI*2); ctx.fill();
+  } else {
+    // Titan
+    ctx.fillRect(-sz,-sz*0.6,sz*2,sz*1.2);
+    for (let s of [-1,1]) { ctx.beginPath(); ctx.moveTo(s*sz,0); ctx.lineTo(s*sz*1.5,-sz*0.4); ctx.lineTo(s*sz*1.5,sz*0.4); ctx.closePath(); ctx.fill(); }
+  }
+
+  // Eyes (shared)
+  if (shape!==2) {
+    ctx.fillStyle='#000'; ctx.shadowBlur=0;
+    ctx.beginPath(); ctx.arc(-sz*0.28,-sz*0.15,sz*0.15,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sz*0.28,-sz*0.15,sz*0.15,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(-sz*0.24,-sz*0.12,sz*0.06,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sz*0.32,-sz*0.12,sz*0.06,0,Math.PI*2); ctx.fill();
+  }
+
+  // HP bar
+  const barW=sz*2.2;
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(-barW/2,-sz-28,barW,12);
+  ctx.fillStyle=r>0.5?'#50ff80':r>0.25?'#ffcc00':'#ff4040';
+  ctx.fillRect(-barW/2,-sz-28,barW*r,12);
+  ctx.fillStyle='rgba(255,255,255,0.8)'; ctx.font='bold 10px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(cfg.name, 0, -sz-40);
+  ctx.restore();
+}
+
+function initGame(mode) {
+  resize();
+  const palette = COLORS[mode];
+  const cols = mode==='boss'?0:8, rows = mode==='boss'?0:mode==='blitz'?3:4;
+  const aliens=[];
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++)
+    aliens.push({x:W*0.1+c*(W*0.8/cols), y:H*0.1+r*52, type:r%3, color:palette[r%palette.length], alive:true, hp:1});
+
+  const maxHp = mode==='boss' ? getBossConfig(bossLevel).hp : 0;
+  const bossCfg = mode==='boss' ? getBossConfig(bossLevel) : null;
+  const bossCfgY = mode==='boss' ? getBossConfig(bossLevel).size + 60 : 0;
+  const bosses = mode==='boss' ? [{
+    x:W/2, y: Math.max(bossCfgY, H*0.22),
+    hp: maxHp, maxHp,
+    vx: bossCfg.speed, shootTimer:0,
+    cfg: bossCfg
+  }] : [];
+
+  // Apply armour upgrade to lives
+  const baseLives = 3 + upgrades.armour;
+
+  return {
+    mode, score:0, lives:baseLives, maxLives:baseLives, wave:1,
+    player:{ x:W/2, y:H-55, shield:false, invuln:0 },
+    aliens, bosses, bullets:[], aBullets:[],
+    alienDir:1, alienSpeed:0.7,
+    particles:[], powerups:[],
+    alienShootTimer:0, alienShootInterval:mode==='blitz'?55:85,
+    blitzTime:60, gameOver:false, victory:false,
+    streak:0, noDamagWave:true, t:0,
+    challenges:{ streak10:false, noDamage:false, score500:false }
+  };
+}
+
+function startGame(mode) {
+  currentMode = mode;
+  if (mode === 'boss') { bossLevel = 1; upgrades = {speed:0,dmg:0,armour:0,rapid:0,triple:0}; pizzaSlices = 0; }
+  document.getElementById('si-menu').style.display='none';
+  document.getElementById('si-game').style.display='flex';
+  document.getElementById('si-overlay').style.display='none';
+  document.getElementById('si-shop').style.display='none';
+  document.getElementById('hud-mode').textContent=mode.toUpperCase();
+  document.getElementById('hud-pizza').style.display = mode==='boss'?'inline':'none';
+  document.getElementById('boss-level-badge').style.display = mode==='boss'?'block':'none';
+  if (animId) cancelAnimationFrame(animId);
+  gameState = initGame(mode);
+  updateChallengeUI(); updatePizzaHUD(); updateBossLevelBadge();
+  checkMobile();
+  lastTime = performance.now();
+  animId = requestAnimationFrame(loop);
+}
+
+function showMenu() {
+  document.getElementById('si-game').style.display='none';
+  document.getElementById('si-menu').style.display='flex';
+  if (animId) { cancelAnimationFrame(animId); animId=null; }
+}
+
+function checkMobile() {
+  document.getElementById('si-mobile-btns').style.display = window.innerWidth<600?'flex':'none';
+}
+
+function updatePizzaHUD() {
+  document.getElementById('hud-pizza-count').textContent = pizzaSlices;
+  document.getElementById('shop-pizza-display').textContent = pizzaSlices;
+}
+
+function updateBossLevelBadge() {
+  document.getElementById('boss-lvl-num').textContent = bossLevel;
+}
+
+function updateChallengeUI() {
+  const gs=gameState;
+  const c1=document.getElementById('ch1'),c2=document.getElementById('ch2'),c3=document.getElementById('ch3');
+  c1.className='challenge-pill'+(gs.challenges.streak10?' done':'');
+  c1.textContent=gs.challenges.streak10?'✓ 10 kill streak!':'Streak: '+gs.streak+'/10';
+  c2.className='challenge-pill'+(gs.challenges.noDamage?' done':'');
+  c2.textContent=gs.challenges.noDamage?'✓ No damage wave!':'No damage this wave';
+  c3.className='challenge-pill'+(gs.challenges.score500?' done':'');
+  c3.textContent=gs.challenges.score500?'✓ Score 500+!':'Score: '+gs.score+'/500';
+}
+
+function openShop() {
+  if (animId) { cancelAnimationFrame(animId); animId=null; }
+  updateShopUI();
+  document.getElementById('si-shop').style.display='flex';
+}
+
+function startCollectPhase(bossX, bossY, sliceCount) {
+  const gs = gameState;
+  gs.collectPhase = true;
+  gs.collectTimer = 540; // 9 seconds to collect before shop auto-opens
+  // Spawn all pizza immediately in a burst pattern
+  for (let s = 0; s < sliceCount; s++) {
+    const angle = (Math.PI * 2 / sliceCount) * s;
+    const dist = 30 + Math.random() * 50;
+    gs.powerups.push({
+      x: bossX + Math.cos(angle) * dist,
+      y: bossY + Math.sin(angle) * dist,
+      type: 'pizza',
+      vy: 0.5 + Math.random() * 1.5,
+      vx: Math.cos(angle) * 1.5
+    });
+  }
+  // 40% chance of a random free upgrade drop
+  if (Math.random() < 0.40) {
+    const pool = ['speed','dmg','armour','rapid','triple'].filter(k => upgrades[k] < UPGRADE_MAX[k]);
+    if (pool.length > 0) {
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      gs.powerups.push({
+        x: bossX + (Math.random()-0.5)*60,
+        y: bossY + 20,
+        type: 'freeupgrade',
+        upgradeKey: pick,
+        vy: 1.0,
+        vx: (Math.random()-0.5)*1.5
+      });
+    }
+  }
+}
+
+function updateShopUI() {
+  updatePizzaHUD();
+  const maxes = { speed:5,dmg:5,armour:3,rapid:4,triple:1 };
+  const costs = { speed:2,dmg:2,armour:3,rapid:2,triple:5,life:4 };
+  const labels = { speed:'upg-speed-lvl',dmg:'upg-dmg-lvl',armour:'upg-armour-lvl',rapid:'upg-rapid-lvl',triple:'upg-triple-lvl' };
+  const btns = { speed:'btn-speed',dmg:'btn-dmg',armour:'btn-armour',rapid:'btn-rapid',triple:'btn-triple' };
+  for (const k of ['speed','dmg','armour','rapid','triple']) {
+    document.getElementById(labels[k]).textContent = 'Level '+upgrades[k]+' / '+maxes[k];
+    const btn = document.getElementById(btns[k]);
+    const maxed = upgrades[k]>=maxes[k];
+    const affordable = pizzaSlices>=costs[k];
+    btn.disabled = maxed || !affordable;
+    btn.textContent = maxed ? 'MAXED' : '🍕 '+costs[k]+' slices';
+  }
+  const lives = gameState ? gameState.lives : 3;
+  document.getElementById('upg-life-cur').textContent = lives;
+  const lifeBtn = document.getElementById('btn-life');
+  lifeBtn.disabled = pizzaSlices < 4 || (gameState && gameState.lives >= gameState.maxLives+upgrades.armour);
+}
+
+function buyUpgrade(type) {
+  const cost = UPGRADE_COST[type];
+  if (pizzaSlices < cost) return;
+  if (type==='life') {
+    if (!gameState || gameState.lives >= 3+upgrades.armour) return;
+    pizzaSlices -= cost;
+    gameState.lives++;
+  } else {
+    if (upgrades[type] >= UPGRADE_MAX[type]) return;
+    pizzaSlices -= cost;
+    upgrades[type]++;
+  }
+  updateShopUI();
+}
+
+function closeShop() {
+  document.getElementById('si-shop').style.display='none';
+  bossLevel++;
+  resize();
+  gameState = initGame('boss');
+  updateBossLevelBadge();
+  updatePizzaHUD();
+  lastTime = performance.now();
+  animId = requestAnimationFrame(loop);
+}
+
+function spawnParticles(x,y,color,n) {
+  n=n||8;
+  for (let i=0;i<n;i++) {
+    const a=(Math.PI*2/n)*i+Math.random()*0.3, spd=1.5+Math.random()*3;
+    gameState.particles.push({x,y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,color,life:1,size:2+Math.random()*3});
+  }
+}
+
+
+
+function nextWave() {
+  const gs=gameState;
+  if (gs.noDamagWave) gs.challenges.noDamage=true;
+  gs.wave++; gs.noDamagWave=true;
+  const palette=COLORS[gs.mode], cols=Math.min(8+gs.wave,11), rows=Math.min(3+Math.floor(gs.wave/2),6);
+  gs.aliens=[];
+  for (let r=0;r<rows;r++) for (let c=0;c<cols;c++)
+    gs.aliens.push({x:W*0.08+c*(W*0.84/cols),y:H*0.07+r*50,type:r%3,color:palette[r%palette.length],alive:true,hp:1+Math.floor(gs.wave/3)});
+  gs.alienSpeed=0.7+gs.wave*0.12; gs.alienShootInterval=Math.max(28,85-gs.wave*5);
+  gs.aBullets=[];
+  updateChallengeUI();
+}
+
+function loop(now) {
+  const dt=Math.min((now-lastTime)/16.67,3);
+  lastTime=now;
+  update(dt); draw();
+  animId=requestAnimationFrame(loop);
+}
+
+function getPlayerSpeed() { return 0.006 + upgrades.speed*0.0014; }
+function getDmg()         { return 1 + upgrades.dmg; }
+function getFireRate()    { return Math.max(4, 18 - upgrades.rapid*3); }
+
+function update(dt) {
+  const gs=gameState;
+  if (!gs||gs.gameOver||gs.victory) return;
+  gs.t+=0.016*dt;
+  if (shotCooldown>0) shotCooldown-=dt;
+
+  const spd=W*getPlayerSpeed()*dt;
+  if ((keys['ArrowLeft']||keys['a']||keys['A']||touches.left)&&gs.player.x>30) gs.player.x-=spd;
+  if ((keys['ArrowRight']||keys['d']||keys['D']||touches.right)&&gs.player.x<W-30) gs.player.x+=spd;
+  if (gs.collectPhase) {
+    if ((keys['ArrowUp']||keys['w']||keys['W']||touches.up) && gs.player.y > H*0.25) gs.player.y -= spd;
+    if ((keys['ArrowDown']||keys['s']||keys['S']||touches.down) && gs.player.y < H - 20) gs.player.y += spd;
+  }
+  if (gs.player.invuln>0) gs.player.invuln-=dt;
+
+  if (gs.mode==='blitz') { gs.blitzTime-=0.016*dt; if(gs.blitzTime<=0){endGame(true);return;} }
+
+  // Aliens
+  const alive=gs.aliens.filter(a=>a.alive);
+  let edgeHit=false;
+  for (const a of alive) { a.x+=gs.alienDir*gs.alienSpeed*dt; if(a.x>W-40||a.x<40) edgeHit=true; }
+  if (edgeHit) { gs.alienDir*=-1; for(const a of alive) a.y+=20; if(alive.some(a=>a.y>H-120)){endGame(false);return;} }
+
+  gs.alienShootTimer+=dt;
+  if (gs.alienShootTimer>=gs.alienShootInterval&&alive.length>0) {
+    gs.alienShootTimer=0;
+    const s=alive[Math.floor(Math.random()*alive.length)];
+    gs.aBullets.push({x:s.x,y:s.y+14,color:s.color,vy:4});
+    if(gs.mode==='blitz'){const s2=alive[Math.floor(Math.random()*alive.length)];gs.aBullets.push({x:s2.x,y:s2.y+14,color:s2.color,vy:4});}
+  }
+
+  // Bosses
+  for (let bi=gs.bosses.length-1;bi>=0;bi--) {
+    const boss=gs.bosses[bi];
+    boss.x+=boss.vx*dt;
+    const margin = boss.cfg.size + 20;
+    if (boss.x > W - margin) { boss.x = W - margin; boss.vx = -Math.abs(boss.vx); }
+    if (boss.x < margin)     { boss.x = margin;     boss.vx =  Math.abs(boss.vx); }
+    boss.shootTimer+=dt;
+    if (boss.shootTimer>=boss.cfg.shotRate) {
+      boss.shootTimer=0;
+      const pattern=boss.cfg.pattern;
+      const count=boss.cfg.shotCount;
+      if (pattern==='side'||pattern==='all') {
+        for(let i=0;i<count;i++) gs.aBullets.push({x:boss.x+(i-count/2)*22,y:boss.y+boss.cfg.size+5,color:boss.cfg.color,vy:3.5});
+      }
+      if (pattern==='spread'||pattern==='all') {
+        for(let i=0;i<count;i++) { const a=Math.PI/2+(i-(count-1)/2)*0.3; gs.aBullets.push({x:boss.x,y:boss.y+boss.cfg.size+5,color:boss.cfg.color,vy:3.5,vx:Math.cos(a-Math.PI/2)*2}); }
+      }
+      if (pattern==='aimed'||pattern==='all') {
+        const ang=Math.atan2(gs.player.y-boss.y, gs.player.x-boss.x);
+        gs.aBullets.push({x:boss.x,y:boss.y+20,color:boss.cfg.color,vy:Math.sin(ang)*4,vx:Math.cos(ang)*4});
+      }
+    }
+    // Player bullets hit boss
+    const dmg=getDmg();
+    for (const b of gs.bullets) {
+      if (!b.dead&&Math.abs(b.x-boss.x)<boss.cfg.size&&Math.abs(b.y-boss.y)<boss.cfg.size*0.7) {
+        b.dead=true; boss.hp-=dmg;
+        spawnParticles(b.x,b.y,boss.cfg.color,5);
+        if (boss.hp<=0) {
+          spawnParticles(boss.x,boss.y,boss.cfg.color,25);
+          const slices=3+Math.floor(bossLevel/2);
+          const deadX=boss.x, deadY=boss.y;
+          gs.bosses.splice(bi,1);
+          gs.score+=200*bossLevel;
+          if (gs.bosses.length===0) {
+            startCollectPhase(deadX, deadY, slices);
+          }
+        }
+      }
+    }
+  }
+
+  gs.bullets=gs.bullets.filter(b=>!b.dead&&b.y>0);
+  for (const b of gs.bullets) { b.y-=8*dt; if(b.vx) b.x+=b.vx*dt; }
+  gs.aBullets=gs.aBullets.filter(b=>b.y<H+10&&b.x>-20&&b.x<W+20);
+  for (const b of gs.aBullets) { b.y+=b.vy*dt; if(b.vx) b.x+=b.vx*dt; }
+
+  // Bullet-alien collisions
+  const dmg=getDmg();
+  for (const b of gs.bullets) {
+    for (const a of gs.aliens) {
+      if (!a.alive||b.dead) continue;
+      if (Math.abs(b.x-a.x)<22&&Math.abs(b.y-a.y)<20) {
+        b.dead=true; a.hp-=dmg;
+        spawnParticles(a.x,a.y,a.color,4);
+        if (a.hp<=0) {
+          a.alive=false; gs.score+=10*gs.wave; gs.streak++;
+          if(gs.streak>=10) gs.challenges.streak10=true;
+          if(gs.score>=500) gs.challenges.score500=true;
+          spawnParticles(a.x,a.y,a.color,12);
+          if(Math.random()<0.06) gs.powerups.push({x:a.x,y:a.y,type:'shield',vy:1.2});
+          updateChallengeUI();
+        }
+      }
+    }
+  }
+
+  if (gs.aliens.every(a=>!a.alive)&&gs.bosses.length===0&&gs.mode!=='boss') nextWave();
+
+  // Collect phase: player can grab pizza before shop opens
+  if (gs.collectPhase) {
+    gs.collectTimer -= dt;
+    if (gs.collectTimer <= 0 || gs.powerups.filter(p=>p.type==='pizza'||p.type==='freeupgrade').length === 0) {
+      gs.collectPhase = false;
+      gs.player.y = H - 55;
+      openShop();
+      return;
+    }
+  }
+
+  // Player hit
+  if (gs.player.invuln<=0) {
+    for (let i=gs.aBullets.length-1;i>=0;i--) {
+      const b=gs.aBullets[i];
+      if (Math.abs(b.x-gs.player.x)<24&&Math.abs(b.y-gs.player.y)<20) {
+        gs.aBullets.splice(i,1); gs.streak=0; gs.noDamagWave=false;
+        if(gs.player.shield){gs.player.shield=false;}
+        else{gs.lives--;spawnParticles(gs.player.x,gs.player.y,'#50c8ff',10);gs.player.invuln=120;if(gs.lives<=0){endGame(false);return;}}
+        updateChallengeUI(); break;
+      }
+    }
+  }
+
+  // Power-ups — pizza gently drifts toward player during collect phase
+  for (let i=gs.powerups.length-1;i>=0;i--) {
+    const p=gs.powerups[i]; p.y+=p.vy*dt;
+    if (p.vx) p.x += p.vx*dt;
+    // During collect phase, pizza and free upgrades are attracted toward player
+    if (gs.collectPhase && (p.type==='pizza'||p.type==='freeupgrade')) {
+      const dx=gs.player.x-p.x, dy=gs.player.y-p.y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if (dist < 200) { p.x+=dx/dist*2.5*dt; p.y+=dy/dist*2.5*dt; }
+    }
+    if (Math.abs(p.x-gs.player.x)<28&&Math.abs(p.y-gs.player.y)<24) {
+      if (p.type==='shield') gs.player.shield=true;
+      if (p.type==='pizza') { pizzaSlices++; updatePizzaHUD(); }
+      if (p.type==='freeupgrade') {
+        const k=p.upgradeKey;
+        if (upgrades[k]<UPGRADE_MAX[k]) {
+          upgrades[k]++;
+          gs.freeUpgradeMsg = { text:'FREE ' + k.toUpperCase() + ' UPGRADE!', timer: 120 };
+        }
+      }
+      gs.powerups.splice(i,1); spawnParticles(p.x,p.y,p.type==='pizza'?'#ffcc00':p.type==='freeupgrade'?'#ff80ff':'#50ffa0',8);
+    } else if (p.y>H) gs.powerups.splice(i,1);
+  }
+
+  for (const p of gs.particles) { p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=0.07*dt;p.life-=0.025*dt; }
+  gs.particles=gs.particles.filter(p=>p.life>0);
+  if (gs.freeUpgradeMsg) { gs.freeUpgradeMsg.timer-=dt; if(gs.freeUpgradeMsg.timer<=0) gs.freeUpgradeMsg=null; }
+
+  document.getElementById('hud-score').textContent=gs.score;
+  const h=gs.lives;
+  document.getElementById('hud-lives').textContent='●'.repeat(Math.max(0,h))+'○'.repeat(Math.max(0,(3+upgrades.armour)-h));
+}
+
+function draw() {
+  const gs=gameState;
+  if (!gs) return;
+  ctx.clearRect(0,0,W,H);
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#06060f');bg.addColorStop(1,'#0c0c22');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+  for(let i=0;i<70;i++){
+    const sx=(i*137+50)%W,sy=(i*89+20)%H;
+    ctx.globalAlpha=(0.3+0.7*Math.abs(Math.sin(gs.t+i)))*0.7;
+    ctx.fillStyle='#fff';ctx.fillRect(sx,sy,1.5,1.5);
+  }
+  ctx.globalAlpha=1;
+
+  for(const a of gs.aliens) if(a.alive) alienShape(a.type,a.x,a.y,18,a.color,gs.t);
+  for(const boss of gs.bosses) drawBoss(boss,gs.t);
+
+  for(const b of gs.bullets){
+    if(b.dead)continue;
+    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y-18);
+    g.addColorStop(0,'rgba(130,200,255,0)');g.addColorStop(1,'#a0e0ff');
+    ctx.fillStyle=g;ctx.shadowColor='#50c8ff';ctx.shadowBlur=12;
+    ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
+  }
+
+  for(const b of gs.aBullets){
+    ctx.fillStyle=b.color;ctx.shadowColor=b.color;ctx.shadowBlur=10;
+    ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+  }
+
+  for(const p of gs.particles){
+    ctx.globalAlpha=p.life;ctx.fillStyle=p.color;ctx.shadowColor=p.color;ctx.shadowBlur=8;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalAlpha=1;ctx.shadowBlur=0;
+
+  // Power-ups
+  for(const p of gs.powerups){
+    if(p.type==='pizza'){
+      ctx.font=`${16+Math.sin(gs.t*5)*2}px Arial`;
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('🍕',p.x,p.y);
+    } else if(p.type==='freeupgrade'){
+      // Glowing star / mystery box
+      ctx.save();
+      ctx.translate(p.x,p.y);
+      ctx.rotate(gs.t*2);
+      ctx.fillStyle='#ff80ff'; ctx.shadowColor='#ff80ff'; ctx.shadowBlur=20;
+      for(let i=0;i<5;i++){
+        const a=(Math.PI*2/5)*i - Math.PI/2;
+        const ax=Math.cos(a)*11, ay=Math.sin(a)*11;
+        const bx=Math.cos(a+Math.PI/5)*5, by=Math.sin(a+Math.PI/5)*5;
+        const nx=Math.cos(a+Math.PI*2/5)*11, ny=Math.sin(a+Math.PI*2/5)*11;
+        if(i===0){ctx.beginPath();ctx.moveTo(ax,ay);}
+        ctx.lineTo(bx,by);ctx.lineTo(nx,ny);
+      }
+      ctx.closePath();ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.fillStyle='#fff';ctx.font='bold 7px Arial';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.rotate(-gs.t*2);
+      ctx.fillText('FREE',0,0);
+      ctx.restore();
+    } else {
+      ctx.fillStyle='#50ffa0';ctx.shadowColor='#50ffa0';ctx.shadowBlur=14;
+      ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#000';ctx.font='bold 9px Arial';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('S',p.x,p.y);ctx.shadowBlur=0;
+    }
+  }
+
+  // Free upgrade toast message
+  if(gs.freeUpgradeMsg){
+    const alpha=Math.min(1,gs.freeUpgradeMsg.timer/30);
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    ctx.fillStyle='rgba(0,0,0,0.6)';
+    ctx.beginPath();ctx.roundRect(W/2-120,60,240,40,10);ctx.fill();
+    ctx.fillStyle='#ff80ff';ctx.font='bold 16px Arial';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.shadowColor='#ff80ff';ctx.shadowBlur=12;
+    ctx.fillText('⭐ '+gs.freeUpgradeMsg.text,W/2,80);
+    ctx.shadowBlur=0;ctx.restore();
+  }
+
+  // Player
+  const px=gs.player.x,py=gs.player.y;
+  const blink=gs.player.invuln>0&&Math.floor(gs.t*15)%2===0;
+  if(!blink){
+    ctx.save();
+    const sz=Math.min(W,H)*0.045;
+    // Armour plating visual
+    if(upgrades.armour>0){
+      ctx.fillStyle='rgba(80,150,255,0.25)';
+      ctx.beginPath();ctx.ellipse(px,py,sz*1.4,sz*1.1,0,0,Math.PI*2);ctx.fill();
+    }
+    ctx.fillStyle='#50c8ff';ctx.shadowColor='#50c8ff';ctx.shadowBlur=20;
+    ctx.beginPath();
+    ctx.moveTo(px,py-sz*1.1);
+    ctx.lineTo(px+sz*0.9,py+sz*0.5);ctx.lineTo(px+sz*0.5,py+sz*0.4);
+    ctx.lineTo(px,py+sz*0.7);ctx.lineTo(px-sz*0.5,py+sz*0.4);
+    ctx.lineTo(px-sz*0.9,py+sz*0.5);ctx.closePath();ctx.fill();
+    // Armour bars on wings
+    if(upgrades.armour>=2){
+      ctx.fillStyle='rgba(100,180,255,0.8)';
+      ctx.fillRect(px-sz*0.9,py+sz*0.2,sz*0.35,sz*0.15);
+      ctx.fillRect(px+sz*0.55,py+sz*0.2,sz*0.35,sz*0.15);
+    }
+    if(upgrades.armour>=3){
+      ctx.fillStyle='rgba(150,220,255,0.9)';
+      ctx.fillRect(px-sz*0.4,py-sz*0.2,sz*0.8,sz*0.12);
+    }
+    ctx.fillStyle='rgba(180,230,255,0.5)';
+    ctx.beginPath();ctx.ellipse(px,py-sz*0.25,sz*0.22,sz*0.4,0,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
+    const eg=ctx.createLinearGradient(px,py+sz*0.7,px,py+sz*1.1);
+    eg.addColorStop(0,'rgba(80,200,255,0.9)');eg.addColorStop(1,'rgba(80,200,255,0)');
+    ctx.fillStyle=eg;
+    ctx.beginPath();ctx.ellipse(px,py+sz*0.9,sz*0.22+Math.sin(gs.t*8)*sz*0.05,sz*0.4,0,0,Math.PI*2);ctx.fill();
+    if(gs.player.shield){
+      ctx.strokeStyle='rgba(80,255,160,0.75)';ctx.lineWidth=2;ctx.shadowColor='#50ffa0';ctx.shadowBlur=14;
+      ctx.beginPath();ctx.arc(px,py,sz*1.6,0,Math.PI*2);ctx.stroke();ctx.shadowBlur=0;
+    }
+    // Triple shot indicator
+    if(upgrades.triple>0){
+      ctx.fillStyle='rgba(255,200,50,0.6)';
+      ctx.beginPath();ctx.arc(px-sz*0.7,py,sz*0.12,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(px+sz*0.7,py,sz*0.12,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  if(gs.mode==='blitz'){
+    const ratio=gs.blitzTime/60;
+    ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fillRect(0,H-5,W,5);
+    ctx.fillStyle=ratio>0.5?'#50ffa0':ratio>0.25?'#ffcc00':'#ff5050';
+    ctx.fillRect(0,H-5,W*ratio,5);
+  }
+
+  // Collect phase banner
+  if (gs.collectPhase) {
+    const secs = Math.ceil(gs.collectTimer / 60);
+    const remaining = gs.powerups.filter(p=>p.type==='pizza'||p.type==='freeupgrade').length;
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,0.55)';
+    ctx.fillRect(0, H/2-38, W, 76);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#ffcc00'; ctx.font='bold 22px Arial';
+    ctx.fillText('🍕  COLLECT YOUR PIZZA!  🍕', W/2, H/2-14);
+    ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font='13px Arial';
+    ctx.fillText(remaining + ' drops left  —  move freely with arrow keys  —  shop in ' + secs + 's', W/2, H/2+14);
+    ctx.restore();
+  }
+}
+
+function endGame(win) {
+  const gs=gameState;gs.gameOver=!win;gs.victory=win;
+  document.getElementById('ov-title').textContent=win?'VICTORY!':'GAME OVER';
+  document.getElementById('ov-score').textContent='Score: '+gs.score;
+  document.getElementById('ov-pizza').textContent=currentMode==='boss'?'🍕 Pizza earned: '+pizzaSlices:'';
+  const chs=[];
+  if(gs.challenges.streak10)chs.push('10 kill streak');
+  if(gs.challenges.noDamage)chs.push('Undamaged wave');
+  if(gs.challenges.score500)chs.push('500+ score');
+  document.getElementById('ov-challenges').textContent=chs.length?'Challenges: '+chs.join(', '):'';
+  document.getElementById('si-overlay').style.display='flex';
+}
+
+function fireShot() {
+  const gs=gameState;
+  if(!gs||gs.gameOver||gs.victory||shotCooldown>0) return;
+  shotCooldown=getFireRate();
+  gs.bullets.push({x:gs.player.x,y:gs.player.y-22,dead:false});
+  if(upgrades.triple>0){
+    gs.bullets.push({x:gs.player.x,y:gs.player.y-22,dead:false,vx:-1.8});
+    gs.bullets.push({x:gs.player.x,y:gs.player.y-22,dead:false,vx:1.8});
+  }
+}
+
+document.addEventListener('keydown',e=>{keys[e.key]=true;if(e.key===' '){e.preventDefault();fireShot();}});
+document.addEventListener('keyup',e=>{keys[e.key]=false;});
+
+const ml=document.getElementById('mob-left'),mr=document.getElementById('mob-right'),mf=document.getElementById('mob-fire');
+const mu=document.getElementById('mob-up'),md=document.getElementById('mob-down');
+function addHold(el,k){el.addEventListener('pointerdown',()=>touches[k]=true);el.addEventListener('pointerup',()=>touches[k]=false);el.addEventListener('pointerleave',()=>touches[k]=false);}
+addHold(ml,'left');addHold(mr,'right');addHold(mu,'up');addHold(md,'down');
+mf.addEventListener('click',fireShot);
+
+canvas.addEventListener('pointerdown',e=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=(e.clientX-rect.left)*(W/rect.width);
+  const gs=gameState;
+  if(gs&&!gs.gameOver&&!gs.victory){gs.player.x=x;fireShot();}
+});
+</script>
+</body>
+</html>
