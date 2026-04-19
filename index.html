@@ -303,11 +303,11 @@ function onGuestData(data) {
 }
 
 function onHostData(data) {
-  if (data.type !== 'state') return;
-  // First state received — launch the guest game screen
-  if (!animId) {
+  if (data.type === 'start') {
     startGame(data.mode, 'guest');
+    return;
   }
+  if (data.type !== 'state') return;
   guestRemote = data;
   if (data.upgrades) upgrades = data.upgrades;
   if (data.pizzaSlices !== undefined) pizzaSlices = data.pizzaSlices;
@@ -506,7 +506,9 @@ function startGame(mode, role) {
   document.getElementById('hud-p2lives').style.display=mpRole?'inline':'none';
   if(mode==='boss'){bossLevel=1;upgrades={speed:0,dmg:0,armour:0,rapid:0,triple:0};pizzaSlices=0;}
   if(animId) cancelAnimationFrame(animId);
+  if(role==='host' && mpConn && mpConn.open) mpConn.send({type:'start', mode});
   if(role==='guest'){
+    resize();
     guestLocalX=W*0.6; guestLocalY=H-55; guestRemote=null;
     checkMobile(); lastTime=performance.now();
     animId=requestAnimationFrame(guestLoop);
