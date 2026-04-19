@@ -104,6 +104,19 @@ html, body { width: 100%; height: 100%; background: #06060f; overflow: hidden; f
 .song-btn:hover { background:rgba(130,80,255,0.2); border-color:rgba(130,80,255,0.5); color:#fff; }
 .song-btn.active { background:rgba(130,80,255,0.35); border-color:rgba(130,80,255,0.75); color:#fff; }
 .set-credit { font-size:9px; color:rgba(255,255,255,0.18); text-align:center; line-height:1.5; }
+
+/* LOBBY PARTY PANEL */
+#si-lobby { position:relative; }
+#lobby-party { position:absolute; bottom:16px; right:16px; background:rgba(8,8,22,0.92); border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:12px 14px; min-width:170px; }
+.party-head { color:rgba(255,255,255,0.45); font-size:10px; letter-spacing:2px; margin-bottom:8px; }
+.party-row { display:flex; align-items:center; gap:6px; padding:4px 0; font-size:12px; color:rgba(255,255,255,0.75); }
+.party-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.party-dot.on  { background:#64ff96; box-shadow:0 0 6px #64ff96; }
+.party-dot.off { background:rgba(255,255,255,0.2); }
+.party-you { color:#a060ff; font-size:10px; margin-left:2px; }
+.party-kick-btn { margin-left:auto; background:rgba(255,60,60,0.15); border:1px solid rgba(255,60,60,0.35); border-radius:4px; color:#ff8080; font-size:10px; padding:2px 6px; cursor:pointer; line-height:1; }
+.party-kick-btn:hover { background:rgba(255,60,60,0.35); }
+.party-wait { color:rgba(255,255,255,0.25); font-size:11px; }
 </style>
 </head>
 <body>
@@ -140,6 +153,11 @@ html, body { width: 100%; height: 100%; background: #06060f; overflow: hidden; f
     </div>
     <button class="lobby-btn solo" onclick="startGame(pendingMode, null)">Play Solo Instead</button>
     <button class="lobby-back" onclick="showMenu()">&#8592; Back to menu</button>
+    <!-- Party panel bottom-right -->
+    <div id="lobby-party" style="display:none">
+      <div class="party-head">PARTY</div>
+      <div id="lobby-party-list"></div>
+    </div>
   </div>
 
   <!-- GAME -->
@@ -149,7 +167,9 @@ html, body { width: 100%; height: 100%; background: #06060f; overflow: hidden; f
       <span id="hud-mode" style="letter-spacing:2px;">CLASSIC</span>
       <span id="hud-pizza" style="display:none;">&#127829; <b id="hud-pizza-count">0</b></span>
       <span>P1 &#10084;&#65039; <span id="hud-lives">&#9679;&#9679;&#9679;</span></span>
-      <span id="hud-p2lives" style="display:none;">P2 &#10084;&#65039; <span id="hud-p2lives-dots">&#9679;&#9679;&#9679;</span></span>
+      <span id="hud-p2lives" style="display:none;color:#ff9040;">P2 &#10084;&#65039; <span id="hud-p2lives-dots">&#9679;&#9679;&#9679;</span></span>
+      <span id="hud-p3lives" style="display:none;color:#50ff80;">P3 &#10084;&#65039; <span id="hud-p3lives-dots">&#9679;&#9679;&#9679;</span></span>
+      <span id="hud-p4lives" style="display:none;color:#d050ff;">P4 &#10084;&#65039; <span id="hud-p4lives-dots">&#9679;&#9679;&#9679;</span></span>
     </div>
     <div id="si-canvas-wrap">
       <canvas id="si-canvas"></canvas>
@@ -167,6 +187,7 @@ html, body { width: 100%; height: 100%; background: #06060f; overflow: hidden; f
       </button>
       <div id="si-ham-menu">
         <button class="ham-item" onclick="hamRestart()">&#8635;&nbsp; Restart</button>
+        <button class="ham-item" onclick="hamReturnToMenu()">&#8962;&nbsp; Return to Menu</button>
         <button class="ham-item ham-danger" id="ham-kick-btn" onclick="hamKick()" style="display:none">&#10006;&nbsp; Kick Party Person</button>
         <hr class="ham-sep">
         <button class="ham-item" onclick="hamSettings()">&#9881;&nbsp; Settings</button>
@@ -279,9 +300,12 @@ function getBossConfig(level) {
 }
 
 // ===== MULTIPLAYER =====
-let mpRole = null; // 'host' | 'guest' | null
+let mpRole = null;       // 'host' | 'guest' | null
+let mpPlayerIdx = 1;    // 1=P1/host, 2=P2, 3=P3, 4=P4
 let mpPeer = null, mpConn = null;
-let p2ShotCooldown = 0, lastSendTime = 0;
+let mpConns = [];        // host: array of up to 3 guest connections
+let p2ShotCooldown = 0, p3ShotCooldown = 0, p4ShotCooldown = 0, lastSendTime = 0;
+let p3PizzaSlices = 0, p4PizzaSlices = 0;
 let guestRemote = null, guestLocalX = 0, guestLocalY = 0, guestFirePending = false;
 
 function genRoomCode() {
@@ -295,20 +319,33 @@ function createRoom() {
   const code = genRoomCode();
   document.getElementById('room-code-display').style.display = 'block';
   document.getElementById('room-code-display').textContent = code;
-  document.getElementById('lobby-status').textContent = 'Waiting for player 2...';
+  document.getElementById('lobby-status').textContent = 'Waiting for players… (0 / 3 joined)';
   document.getElementById('lobby-error').textContent = '';
+  mpConns = []; mpRole = 'host';
   mpPeer = new Peer('si6-'+code, {debug:0});
   mpPeer.on('error', e => {
-    if (e.type === 'unavailable-id') { document.getElementById('lobby-status').textContent = 'Code taken, try again'; document.getElementById('room-code-display').style.display = 'none'; }
-    else document.getElementById('lobby-status').textContent = 'Error: ' + e.message;
+    if (e.type==='unavailable-id') { document.getElementById('lobby-status').textContent='Code taken, try again'; document.getElementById('room-code-display').style.display='none'; }
+    else document.getElementById('lobby-status').textContent='Error: '+e.message;
   });
   mpPeer.on('connection', c => {
-    mpConn = c; mpRole = 'host';
-    setupMPConn(c, 'host');
+    if (mpConns.length >= 3) {
+      try { c.send({type:'full'}); c.close(); } catch(e) {}
+      return;
+    }
+    const connIdx = mpConns.length;
+    mpConns.push(c);
+    setupMPConn(c, 'host', connIdx);
   });
+  updateLobbyParty();
+  document.getElementById('lobby-party').style.display = 'block';
 }
 
 function joinRoom() {
+  // Prevent host from joining their own room
+  if (mpRole === 'host') {
+    document.getElementById('lobby-error').textContent = "You're the host — share your code instead!";
+    return;
+  }
   const raw = document.getElementById('join-code-input').value.trim().toUpperCase();
   if (raw.length < 6) { document.getElementById('lobby-error').textContent = 'Enter the full 6-character code'; return; }
   document.getElementById('lobby-error').textContent = '';
@@ -317,7 +354,7 @@ function joinRoom() {
   mpPeer.on('open', () => {
     const c = mpPeer.connect('si6-'+raw, {reliable:true});
     mpConn = c; mpRole = 'guest';
-    setupMPConn(c, 'guest');
+    setupMPConn(c, 'guest', 0);
   });
   mpPeer.on('error', () => {
     document.getElementById('lobby-error').textContent = 'Could not connect. Check the code.';
@@ -326,18 +363,36 @@ function joinRoom() {
   });
 }
 
-function setupMPConn(conn, role) {
+function setupMPConn(conn, role, connIdx) {
   conn.on('open', () => {
     if (role === 'guest') {
-      document.getElementById('lobby-status').textContent = 'Connected! Waiting for host...';
+      document.getElementById('lobby-status').textContent = 'Connected! Waiting for host…';
     } else {
-      document.getElementById('lobby-status').textContent = 'Player 2 is ready!';
+      const n = mpConns.length;
+      document.getElementById('lobby-status').textContent = n + ' player' + (n>1?'s':'') + ' connected (' + n + '/3)';
       document.getElementById('lobby-start-btn').style.display = 'block';
+      updateLobbyParty();
     }
   });
-  conn.on('data', data => { if (role==='guest') onHostData(data); else onGuestData(data); });
-  conn.on('close', () => { if (gameState && !gameState.gameOver && !gameState.victory) showDisconnect(); });
-  conn.on('error', () => showDisconnect());
+  conn.on('data', data => {
+    if (role === 'guest') onHostData(data);
+    else onGuestData(data, connIdx);
+  });
+  conn.on('close', () => {
+    if (role === 'host') {
+      // Remove from mpConns and update party
+      const idx = mpConns.indexOf(conn);
+      if (idx !== -1) mpConns.splice(idx, 1);
+      updateLobbyParty();
+      if (!gameState || gameState.gameOver || gameState.victory) return;
+      // Use original connIdx (closure) so P3 always removes p3, not whatever position it ended up in
+      const pKey = 'p'+(connIdx+2);
+      if (gameState[pKey]) { gameState[pKey] = null; gameState[pKey+'bullets'] = []; }
+    } else {
+      if (gameState && !gameState.gameOver && !gameState.victory) showDisconnect();
+    }
+  });
+  conn.on('error', () => { if (role === 'guest') showDisconnect(); });
 }
 
 function showDisconnect() {
@@ -349,17 +404,26 @@ function showDisconnect() {
   if (animId) { cancelAnimationFrame(animId); animId = null; }
 }
 
-function onGuestData(data) {
+function onGuestData(data, connIdx) {
   if (!gameState || data.type !== 'input') return;
-  if (!gameState.p2) gameState.p2 = {x:GW*0.6, y:GH-55, shield:false, invuln:0, lives:3+upgrades.armour};
-  gameState.p2.x = data.x;
-  gameState.p2.y = data.y;
-  if (data.fire && p2ShotCooldown <= 0) {
-    p2ShotCooldown = getFireRate();
-    gameState.p2bullets.push({x:gameState.p2.x, y:gameState.p2.y-22, dead:false});
-    if (upgrades.triple > 0) {
-      gameState.p2bullets.push({x:gameState.p2.x, y:gameState.p2.y-22, dead:false, vx:-1.8});
-      gameState.p2bullets.push({x:gameState.p2.x, y:gameState.p2.y-22, dead:false, vx:1.8});
+  const pKey = 'p'+(connIdx+2);          // 'p2','p3','p4'
+  const bKey = pKey+'bullets';
+  const defaultX = [GW*0.6,GW*0.35,GW*0.75][connIdx]||GW*0.6;
+  if (!gameState[pKey]) gameState[pKey]={x:defaultX,y:GH-55,shield:false,invuln:0,lives:3+upgrades.armour};
+  gameState[pKey].x=data.x;
+  gameState[pKey].y=data.y;
+  if(data.fire){
+    const cds=[p2ShotCooldown,p3ShotCooldown,p4ShotCooldown];
+    if(cds[connIdx]<=0){
+      const rate=getFireRate();
+      if(connIdx===0)p2ShotCooldown=rate;
+      else if(connIdx===1)p3ShotCooldown=rate;
+      else p4ShotCooldown=rate;
+      gameState[bKey].push({x:gameState[pKey].x,y:gameState[pKey].y-22,dead:false});
+      if(upgrades.triple>0){
+        gameState[bKey].push({x:gameState[pKey].x,y:gameState[pKey].y-22,dead:false,vx:-1.8});
+        gameState[bKey].push({x:gameState[pKey].x,y:gameState[pKey].y-22,dead:false,vx:1.8});
+      }
     }
   }
 }
@@ -371,47 +435,73 @@ function onHostData(data) {
     document.getElementById('ov-challenges').textContent = 'The host removed you from the game.';
     return;
   }
+  if (data.type === 'returnToMenu') {
+    if(animId){cancelAnimationFrame(animId);animId=null;}
+    gameState=null; guestRemote=null;
+    showMenu();
+    return;
+  }
   if (data.type === 'start') {
+    mpPlayerIdx = data.playerIdx || 2;
     startGame(data.mode, 'guest');
     return;
   }
   if (data.type !== 'state') return;
-  if (!animId) { startGame(data.mode, 'guest'); }
+  if (!animId) { mpPlayerIdx = data.playerIdx || mpPlayerIdx; startGame(data.mode, 'guest'); }
   guestRemote = data;
   if (data.upgrades) upgrades = data.upgrades;
   if (data.pizzaSlices !== undefined) pizzaSlices = data.pizzaSlices;
   if (data.p2PizzaSlices !== undefined) p2PizzaSlices = data.p2PizzaSlices;
+  if (data.p3PizzaSlices !== undefined) p3PizzaSlices = data.p3PizzaSlices;
+  if (data.p4PizzaSlices !== undefined) p4PizzaSlices = data.p4PizzaSlices;
   if (data.bossLevel !== undefined) bossLevel = data.bossLevel;
   document.getElementById('hud-score').textContent = data.score || 0;
   const maxL = 3 + (upgrades.armour||0);
-  document.getElementById('hud-lives').textContent = String.fromCharCode(9679).repeat(Math.max(0,data.p1lives||0)) + String.fromCharCode(9675).repeat(Math.max(0,maxL-(data.p1lives||0)));
-  document.getElementById('hud-p2lives-dots').textContent = String.fromCharCode(9679).repeat(Math.max(0,data.p2lives||0)) + String.fromCharCode(9675).repeat(Math.max(0,maxL-(data.p2lives||0)));
+  const dot='\u25cf', ring='\u25cb';
+  const dots=n=>dot.repeat(Math.max(0,n))+ring.repeat(Math.max(0,maxL-n));
+  document.getElementById('hud-lives').textContent = dots(data.p1lives||0);
+  document.getElementById('hud-p2lives-dots').textContent = dots(data.p2lives||0);
+  if(data.p3lives!==undefined){
+    document.getElementById('hud-p3lives').style.display=data.p3pos?'inline':'none';
+    document.getElementById('hud-p3lives-dots').textContent=dots(data.p3lives||0);
+  }
+  if(data.p4lives!==undefined){
+    document.getElementById('hud-p4lives').style.display=data.p4pos?'inline':'none';
+    document.getElementById('hud-p4lives-dots').textContent=dots(data.p4lives||0);
+  }
   updatePizzaHUD();
   if (data.shopOpen) openShop();
   if (data.gameOver || data.victory) endGameGuest(data);
 }
 
 function sendHostState() {
-  if (!mpConn) return;
+  if (!mpConns.length) return;
   const gs = gameState;
-  try { mpConn.send({
+  const payload = {
     type:'state', score:gs.score, wave:gs.wave, t:gs.t, mode:gs.mode,
     gameOver:gs.gameOver, victory:gs.victory,
     collectPhase:gs.collectPhase||false, collectTimer:gs.collectTimer||0,
     blitzTime:gs.blitzTime,
     p1lives:gs.lives, p2lives:gs.p2?gs.p2.lives:0,
-    p1:{x:gs.player.x, y:gs.player.y, shield:gs.player.shield, invuln:gs.player.invuln},
-    p2pos:gs.p2?{x:gs.p2.x, y:gs.p2.y, shield:gs.p2.shield, invuln:gs.p2.invuln}:null,
-    aliens:gs.aliens.filter(a=>a.alive).map(a=>({x:a.x, y:a.y, hp:a.hp, type:a.type, color:a.color})),
-    bosses:gs.bosses.map(b=>({x:b.x, y:b.y, hp:b.hp, maxHp:b.maxHp, cfg:b.cfg})),
-    aBullets:gs.aBullets.map(b=>({x:b.x, y:b.y, color:b.color})),
-    bullets:gs.bullets.filter(b=>!b.dead).map(b=>({x:b.x, y:b.y})),
-    p2bullets:gs.p2bullets.filter(b=>!b.dead).map(b=>({x:b.x, y:b.y})),
-    powerups:gs.powerups.map(p=>({x:p.x, y:p.y, type:p.type})),
+    p3lives:gs.p3?gs.p3.lives:0, p4lives:gs.p4?gs.p4.lives:0,
+    p1:{x:gs.player.x,y:gs.player.y,shield:gs.player.shield,invuln:gs.player.invuln},
+    p2pos:gs.p2?{x:gs.p2.x,y:gs.p2.y,shield:gs.p2.shield,invuln:gs.p2.invuln}:null,
+    p3pos:gs.p3?{x:gs.p3.x,y:gs.p3.y,shield:gs.p3.shield,invuln:gs.p3.invuln}:null,
+    p4pos:gs.p4?{x:gs.p4.x,y:gs.p4.y,shield:gs.p4.shield,invuln:gs.p4.invuln}:null,
+    aliens:gs.aliens.filter(a=>a.alive).map(a=>({x:a.x,y:a.y,hp:a.hp,type:a.type,color:a.color})),
+    bosses:gs.bosses.map(b=>({x:b.x,y:b.y,hp:b.hp,maxHp:b.maxHp,cfg:b.cfg})),
+    aBullets:gs.aBullets.map(b=>({x:b.x,y:b.y,color:b.color})),
+    bullets:gs.bullets.filter(b=>!b.dead).map(b=>({x:b.x,y:b.y})),
+    p2bullets:gs.p2bullets.filter(b=>!b.dead).map(b=>({x:b.x,y:b.y})),
+    p3bullets:gs.p3bullets.filter(b=>!b.dead).map(b=>({x:b.x,y:b.y})),
+    p4bullets:gs.p4bullets.filter(b=>!b.dead).map(b=>({x:b.x,y:b.y})),
+    walls:gs.walls,
+    powerups:gs.powerups.map(p=>({x:p.x,y:p.y,type:p.type})),
     challenges:gs.challenges, streak:gs.streak,
-    upgrades, pizzaSlices, p2PizzaSlices, bossLevel,
+    upgrades, pizzaSlices, p2PizzaSlices, p3PizzaSlices, p4PizzaSlices, bossLevel,
     shopOpen:document.getElementById('si-shop').style.display==='flex'
-  }); } catch(e) {}
+  };
+  for(const c of mpConns){ try{c.send(payload);}catch(e){} }
 }
 
 function sendGuestInput(fire) {
@@ -475,15 +565,25 @@ function drawBoss(boss, t) {
   ctx.restore();
 }
 
-function drawShip(x, y, shield, invuln, t, isP2) {
+function drawShip(x, y, shield, invuln, t, pIdx) {
   const blink = invuln>0 && Math.floor(performance.now()/66)%2===0;
   if (blink) return;
   ctx.save();
   const sz = Math.min(GW, GH)*0.045;
-  const shipColor = isP2?'#ff9040':'#50c8ff';
-  const glowColor = isP2?'#ff6010':'#50c8ff';
+  const ci = Math.max(0, Math.min(3, (pIdx||1)-1));
+  const shipColors  = ['#50c8ff','#ff9040','#50ff80','#d050ff'];
+  const glowColors  = ['#50c8ff','#ff6010','#20e060','#b020ff'];
+  const armour1Fill = ['rgba(80,150,255,0.25)','rgba(255,120,30,0.2)','rgba(80,255,128,0.2)','rgba(208,80,255,0.2)'];
+  const armour2Fill = ['rgba(100,180,255,0.8)','rgba(255,160,80,0.8)','rgba(100,255,150,0.8)','rgba(220,120,255,0.8)'];
+  const armour3Fill = ['rgba(150,220,255,0.9)','rgba(255,200,120,0.9)','rgba(160,255,190,0.9)','rgba(230,160,255,0.9)'];
+  const canopyFill  = ['rgba(180,230,255,0.5)','rgba(255,200,150,0.5)','rgba(180,255,210,0.5)','rgba(220,170,255,0.5)'];
+  const engineOn    = ['rgba(80,200,255,0.9)','rgba(255,120,40,0.9)','rgba(80,255,150,0.9)','rgba(210,80,255,0.9)'];
+  const engineOff   = ['rgba(80,200,255,0)','rgba(255,120,40,0)','rgba(80,255,150,0)','rgba(210,80,255,0)'];
+  const shieldStroke= ['rgba(80,255,160,0.75)','rgba(255,160,60,0.75)','rgba(80,255,120,0.75)','rgba(210,80,255,0.75)'];
+  const shieldGlow  = ['#50ffa0','#ff9030','#50ff80','#d050ff'];
+  const shipColor=shipColors[ci], glowColor=glowColors[ci];
   if(upgrades.armour>0){
-    ctx.fillStyle=isP2?'rgba(255,120,30,0.2)':'rgba(80,150,255,0.25)';
+    ctx.fillStyle=armour1Fill[ci];
     ctx.beginPath();ctx.ellipse(x,y,sz*1.4,sz*1.1,0,0,Math.PI*2);ctx.fill();
   }
   ctx.fillStyle=shipColor;ctx.shadowColor=glowColor;ctx.shadowBlur=20;
@@ -493,25 +593,24 @@ function drawShip(x, y, shield, invuln, t, isP2) {
   ctx.lineTo(x,y+sz*0.7);ctx.lineTo(x-sz*0.5,y+sz*0.4);
   ctx.lineTo(x-sz*0.9,y+sz*0.5);ctx.closePath();ctx.fill();
   if(upgrades.armour>=2){
-    ctx.fillStyle=isP2?'rgba(255,160,80,0.8)':'rgba(100,180,255,0.8)';
+    ctx.fillStyle=armour2Fill[ci];
     ctx.fillRect(x-sz*0.9,y+sz*0.2,sz*0.35,sz*0.15);
     ctx.fillRect(x+sz*0.55,y+sz*0.2,sz*0.35,sz*0.15);
   }
   if(upgrades.armour>=3){
-    ctx.fillStyle=isP2?'rgba(255,200,120,0.9)':'rgba(150,220,255,0.9)';
+    ctx.fillStyle=armour3Fill[ci];
     ctx.fillRect(x-sz*0.4,y-sz*0.2,sz*0.8,sz*0.12);
   }
-  ctx.fillStyle=isP2?'rgba(255,200,150,0.5)':'rgba(180,230,255,0.5)';
+  ctx.fillStyle=canopyFill[ci];
   ctx.beginPath();ctx.ellipse(x,y-sz*0.25,sz*0.22,sz*0.4,0,0,Math.PI*2);ctx.fill();
   ctx.shadowBlur=0;
-  const ec=isP2?'rgba(255,120,40,0.9)':'rgba(80,200,255,0.9)';
   const eg=ctx.createLinearGradient(x,y+sz*0.7,x,y+sz*1.1);
-  eg.addColorStop(0,ec);eg.addColorStop(1,isP2?'rgba(255,120,40,0)':'rgba(80,200,255,0)');
+  eg.addColorStop(0,engineOn[ci]);eg.addColorStop(1,engineOff[ci]);
   ctx.fillStyle=eg;
   ctx.beginPath();ctx.ellipse(x,y+sz*0.9,sz*0.22+Math.sin(t*8)*sz*0.05,sz*0.4,0,0,Math.PI*2);ctx.fill();
   if(shield){
-    ctx.strokeStyle=isP2?'rgba(255,160,60,0.75)':'rgba(80,255,160,0.75)';
-    ctx.lineWidth=2;ctx.shadowColor=isP2?'#ff9030':'#50ffa0';ctx.shadowBlur=14;
+    ctx.strokeStyle=shieldStroke[ci];
+    ctx.lineWidth=2;ctx.shadowColor=shieldGlow[ci];ctx.shadowBlur=14;
     ctx.beginPath();ctx.arc(x,y,sz*1.6,0,Math.PI*2);ctx.stroke();ctx.shadowBlur=0;
   }
   if(upgrades.triple>0){
@@ -519,10 +618,10 @@ function drawShip(x, y, shield, invuln, t, isP2) {
     ctx.beginPath();ctx.arc(x-sz*0.7,y,sz*0.12,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.arc(x+sz*0.7,y,sz*0.12,0,Math.PI*2);ctx.fill();
   }
-  if(isP2){
-    ctx.fillStyle='rgba(255,160,80,0.8)';ctx.font='bold 9px Arial';
+  if(pIdx>1){
+    ctx.fillStyle=shipColor;ctx.font='bold 9px Arial';
     ctx.textAlign='center';ctx.textBaseline='bottom';
-    ctx.fillText('P2',x,y-sz*1.2);
+    ctx.fillText('P'+pIdx,x,y-sz*1.2);
   }
   ctx.restore();
 }
@@ -540,11 +639,16 @@ function initGame(mode) {
   const bossCfgY=mode==='boss'?getBossConfig(bossLevel).size+60:0;
   const bosses=mode==='boss'?[{x:GW/2,y:Math.max(bossCfgY,GH*0.22),hp:maxHp,maxHp,vx:bossCfg.speed,shootTimer:0,cfg:bossCfg}]:[];
   const baseLives=3+upgrades.armour;
-  const p2=mpRole?{x:GW*0.6,y:GH-55,shield:false,invuln:0,lives:baseLives}:null;
+  const nc=mpRole==='host'?mpConns.length:0;
+  const p2=nc>=1?{x:GW*0.6,y:GH-55,shield:false,invuln:0,lives:baseLives}:null;
+  const p3=nc>=2?{x:GW*0.35,y:GH-55,shield:false,invuln:0,lives:baseLives}:null;
+  const p4=nc>=3?{x:GW*0.75,y:GH-55,shield:false,invuln:0,lives:baseLives}:null;
+  const walls=mode==='classic'?createWalls():[];
   return {
     mode, score:0, lives:baseLives, maxLives:baseLives, wave:1,
     player:{x:GW/2,y:GH-55,shield:false,invuln:0},
-    p2, aliens, bosses, bullets:[], aBullets:[], p2bullets:[],
+    p2, p3, p4, aliens, bosses, bullets:[], aBullets:[], p2bullets:[], p3bullets:[], p4bullets:[],
+    walls,
     alienDir:1, alienSpeed:0.7, particles:[], powerups:[],
     alienShootTimer:0, alienShootInterval:mode==='blitz'?55:85,
     blitzTime:60, gameOver:false, victory:false,
@@ -575,10 +679,17 @@ function startGame(mode, role) {
   document.getElementById('hud-pizza').style.display=mode==='boss'?'inline':'none';
   document.getElementById('boss-level-badge').style.display=(mode==='boss'&&!mpRole)?'block':'none';
   document.getElementById('coop-badge').style.display=mpRole?'block':'none';
+  // Always reset upgrades and pizza on every new game
+  upgrades={speed:0,dmg:0,armour:0,rapid:0,triple:0};
+  pizzaSlices=0;p2PizzaSlices=0;p3PizzaSlices=0;p4PizzaSlices=0;
+  if(mode==='boss') bossLevel=1;
   document.getElementById('hud-p2lives').style.display=mpRole?'inline':'none';
-  if(mode==='boss'){bossLevel=1;upgrades={speed:0,dmg:0,armour:0,rapid:0,triple:0};pizzaSlices=0;p2PizzaSlices=0;}
+  document.getElementById('hud-p3lives').style.display=(role==='host'&&mpConns.length>=2)?'inline':'none';
+  document.getElementById('hud-p4lives').style.display=(role==='host'&&mpConns.length>=3)?'inline':'none';
   if(animId) cancelAnimationFrame(animId);
-  if(role==='host' && mpConn) { try { mpConn.send({type:'start', mode}); } catch(e){} }
+  if(role==='host') {
+    mpConns.forEach((c,i)=>{ try{c.send({type:'start',mode,playerIdx:i+2});}catch(e){} });
+  }
   lastSendTime = 0;
   if(role==='guest'){
     // Defer one frame so flexbox layout computes before resize() reads dimensions
@@ -604,9 +715,10 @@ function showMenu() {
   document.getElementById('si-lobby').style.display='none';
   document.getElementById('si-menu').style.display='flex';
   if(animId){cancelAnimationFrame(animId);animId=null;}
-  mpRole=null;
+  mpRole=null; mpPlayerIdx=1;
   if(mpPeer){try{mpPeer.destroy();}catch(e){} mpPeer=null;}
-  mpConn=null;
+  mpConn=null; mpConns=[];
+  gameState=null; guestRemote=null;
 }
 
 function restartAfterEnd() {
@@ -618,7 +730,13 @@ function checkMobile() {
 }
 
 function updatePizzaHUD() {
-  document.getElementById('hud-pizza-count').textContent = mpRole==='guest' ? p2PizzaSlices : pizzaSlices;
+  let myPizza = pizzaSlices;
+  if(mpRole==='guest'){
+    if(mpPlayerIdx===2) myPizza=p2PizzaSlices;
+    else if(mpPlayerIdx===3) myPizza=p3PizzaSlices;
+    else if(mpPlayerIdx===4) myPizza=p4PizzaSlices;
+  }
+  document.getElementById('hud-pizza-count').textContent=myPizza;
   document.getElementById('shop-pizza-display').textContent=pizzaSlices;
 }
 
@@ -720,7 +838,7 @@ function loop(now) {
   const dt=Math.min((now-lastTime)/16.67,3);
   lastTime=now;
   update(dt);draw();
-  if(mpRole==='host'&&now-lastSendTime>20){lastSendTime=now;sendHostState();}
+  if(mpRole==='host'&&mpConns.length>0&&now-lastSendTime>20){lastSendTime=now;sendHostState();}
   animId=requestAnimationFrame(loop);
 }
 
@@ -764,7 +882,7 @@ function drawGuest() {
   if(!r){
     ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font='18px Arial';ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText('Waiting for host...',GW/2,GH/2);
-    drawShip(guestLocalX,guestLocalY,false,0,0,true);
+    drawShip(guestLocalX,guestLocalY,false,0,0,mpPlayerIdx);
     ctx.restore();
     return;
   }
@@ -782,6 +900,19 @@ function drawGuest() {
     ctx.fillStyle=g;ctx.shadowColor='#ff8020';ctx.shadowBlur=12;
     ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
   }
+  if(r.p3bullets) for(const b of r.p3bullets){
+    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y-18);
+    g.addColorStop(0,'rgba(80,255,128,0)');g.addColorStop(1,'#50ff80');
+    ctx.fillStyle=g;ctx.shadowColor='#20e060';ctx.shadowBlur=12;
+    ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
+  }
+  if(r.p4bullets) for(const b of r.p4bullets){
+    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y-18);
+    g.addColorStop(0,'rgba(210,80,255,0)');g.addColorStop(1,'#d050ff');
+    ctx.fillStyle=g;ctx.shadowColor='#b020ff';ctx.shadowBlur=12;
+    ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
+  }
+  if(r.walls) drawWalls(r.walls);
   if(r.aBullets) for(const b of r.aBullets){
     ctx.fillStyle=b.color;ctx.shadowColor=b.color;ctx.shadowBlur=10;
     ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
@@ -801,8 +932,15 @@ function drawGuest() {
       ctx.fillStyle='#000';ctx.font='bold 9px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('S',p.x,p.y);ctx.shadowBlur=0;
     }
   }
-  if(r.p1) drawShip(r.p1.x,r.p1.y,r.p1.shield,r.p1.invuln,t,false);
-  drawShip(guestLocalX,guestLocalY,r.p2pos?r.p2pos.shield:false,r.p2pos?r.p2pos.invuln:0,t,true);
+  if(r.p1) drawShip(r.p1.x,r.p1.y,r.p1.shield,r.p1.invuln,t,1);
+  // Draw local ship and all remote ships
+  const myPos2=r.p2pos, myPos3=r.p3pos, myPos4=r.p4pos;
+  const myShield=mpPlayerIdx===2?(myPos2?myPos2.shield:false):mpPlayerIdx===3?(myPos3?myPos3.shield:false):(myPos4?myPos4.shield:false);
+  const myInvuln=mpPlayerIdx===2?(myPos2?myPos2.invuln:0):mpPlayerIdx===3?(myPos3?myPos3.invuln:0):(myPos4?myPos4.invuln:0);
+  if(mpPlayerIdx!==2&&myPos2) drawShip(myPos2.x,myPos2.y,myPos2.shield,myPos2.invuln,t,2);
+  if(mpPlayerIdx!==3&&myPos3) drawShip(myPos3.x,myPos3.y,myPos3.shield,myPos3.invuln,t,3);
+  if(mpPlayerIdx!==4&&myPos4) drawShip(myPos4.x,myPos4.y,myPos4.shield,myPos4.invuln,t,4);
+  drawShip(guestLocalX,guestLocalY,myShield,myInvuln,t,mpPlayerIdx);
   if(r.collectPhase){
     const secs=Math.ceil(r.collectTimer/60);
     const rem=r.powerups?r.powerups.filter(p=>p.type==='pizza'||p.type==='freeupgrade').length:0;
@@ -840,6 +978,8 @@ function update(dt) {
   gs.t+=0.016*dt;
   if(shotCooldown>0) shotCooldown-=dt;
   if(p2ShotCooldown>0) p2ShotCooldown-=dt;
+  if(p3ShotCooldown>0) p3ShotCooldown-=dt;
+  if(p4ShotCooldown>0) p4ShotCooldown-=dt;
   const spd=GW*getPlayerSpeed()*dt;
   if((keys['ArrowLeft']||keys['a']||keys['A']||touches.left)&&gs.player.x>30) gs.player.x-=spd;
   if((keys['ArrowRight']||keys['d']||keys['D']||touches.right)&&gs.player.x<GW-30) gs.player.x+=spd;
@@ -849,6 +989,8 @@ function update(dt) {
   }
   if(gs.player.invuln>0) gs.player.invuln-=dt;
   if(gs.p2&&gs.p2.invuln>0) gs.p2.invuln-=dt;
+  if(gs.p3&&gs.p3.invuln>0) gs.p3.invuln-=dt;
+  if(gs.p4&&gs.p4.invuln>0) gs.p4.invuln-=dt;
   if(gs.mode==='blitz'){gs.blitzTime-=0.016*dt;if(gs.blitzTime<=0){endGame(true);return;}}
 
   const alive=gs.aliens.filter(a=>a.alive);
@@ -882,7 +1024,7 @@ function update(dt) {
       if(pattern==='aimed'||pattern==='all'){const ang=Math.atan2(gs.player.y-boss.y,gs.player.x-boss.x);gs.aBullets.push({x:boss.x,y:boss.y+20,color:boss.cfg.color,vy:Math.sin(ang)*4,vx:Math.cos(ang)*4});}
     }
     const dmg=getDmg();
-    for(const b of[...gs.bullets,...gs.p2bullets]){
+    for(const b of[...gs.bullets,...gs.p2bullets,...gs.p3bullets,...gs.p4bullets]){
       if(!b.dead&&Math.abs(b.x-boss.x)<boss.cfg.size&&Math.abs(b.y-boss.y)<boss.cfg.size*0.7){
         b.dead=true;boss.hp-=dmg;spawnParticles(b.x,b.y,boss.cfg.color,5);
         if(boss.hp<=0){
@@ -899,11 +1041,28 @@ function update(dt) {
   for(const b of gs.bullets){b.y-=8*dt;if(b.vx)b.x+=b.vx*dt;}
   gs.p2bullets=gs.p2bullets.filter(b=>!b.dead&&b.y>0);
   for(const b of gs.p2bullets){b.y-=8*dt;if(b.vx)b.x+=b.vx*dt;}
+  gs.p3bullets=gs.p3bullets.filter(b=>!b.dead&&b.y>0);
+  for(const b of gs.p3bullets){b.y-=8*dt;if(b.vx)b.x+=b.vx*dt;}
+  gs.p4bullets=gs.p4bullets.filter(b=>!b.dead&&b.y>0);
+  for(const b of gs.p4bullets){b.y-=8*dt;if(b.vx)b.x+=b.vx*dt;}
   gs.aBullets=gs.aBullets.filter(b=>b.y<GH+10&&b.x>-20&&b.x<GW+20);
   for(const b of gs.aBullets){b.y+=b.vy*dt;if(b.vx)b.x+=b.vx*dt;}
 
   const dmg=getDmg();
-  for(const b of[...gs.bullets,...gs.p2bullets]){
+  // Wall collision — player bullets and alien bullets damage walls
+  if(gs.walls){
+    for(const wall of gs.walls){
+      if(wall.hp<=0) continue;
+      for(const b of[...gs.bullets,...gs.p2bullets,...gs.p3bullets,...gs.p4bullets]){
+        if(!b.dead&&Math.abs(b.x-wall.x)<wall.w/2+2&&Math.abs(b.y-wall.y)<wall.h/2+2){b.dead=true;wall.hp--;break;}
+      }
+      for(let i=gs.aBullets.length-1;i>=0;i--){
+        const b=gs.aBullets[i];
+        if(Math.abs(b.x-wall.x)<wall.w/2+3&&Math.abs(b.y-wall.y)<wall.h/2+4){gs.aBullets.splice(i,1);wall.hp--;break;}
+      }
+    }
+  }
+  for(const b of[...gs.bullets,...gs.p2bullets,...gs.p3bullets,...gs.p4bullets]){
     for(const a of gs.aliens){
       if(!a.alive||b.dead) continue;
       if(Math.abs(b.x-a.x)<22&&Math.abs(b.y-a.y)<20){
@@ -929,6 +1088,8 @@ function update(dt) {
     }
   }
 
+  // Helper: check if all players are dead
+  const anyAlive=()=>gs.lives>0||(gs.p2&&gs.p2.lives>0)||(gs.p3&&gs.p3.lives>0)||(gs.p4&&gs.p4.lives>0);
   if(gs.player.invuln<=0){
     for(let i=gs.aBullets.length-1;i>=0;i--){
       const b=gs.aBullets[i];
@@ -936,19 +1097,21 @@ function update(dt) {
         gs.aBullets.splice(i,1);gs.streak=0;gs.noDamagWave=false;
         if(gs.player.shield)gs.player.shield=false;
         else{gs.lives--;spawnParticles(gs.player.x,gs.player.y,'#50c8ff',10);gs.player.invuln=120;}
-        if(gs.lives<=0&&(!gs.p2||gs.p2.lives<=0)){endGame(false);return;}
+        if(!anyAlive()){endGame(false);return;}
         updateChallengeUI();break;
       }
     }
   }
-  if(gs.p2&&gs.p2.invuln<=0){
+  const pxColors=['#ff9040','#50ff80','#d050ff'];
+  for(const [pObj,pi] of [[gs.p2,0],[gs.p3,1],[gs.p4,2]]){
+    if(!pObj||pObj.invuln>0) continue;
     for(let i=gs.aBullets.length-1;i>=0;i--){
       const b=gs.aBullets[i];
-      if(Math.abs(b.x-gs.p2.x)<24&&Math.abs(b.y-gs.p2.y)<20){
+      if(Math.abs(b.x-pObj.x)<24&&Math.abs(b.y-pObj.y)<20){
         gs.aBullets.splice(i,1);
-        if(gs.p2.shield)gs.p2.shield=false;
-        else{gs.p2.lives--;spawnParticles(gs.p2.x,gs.p2.y,'#ff9040',10);gs.p2.invuln=120;}
-        if(gs.lives<=0&&gs.p2.lives<=0){endGame(false);return;}
+        if(pObj.shield)pObj.shield=false;
+        else{pObj.lives--;spawnParticles(pObj.x,pObj.y,pxColors[pi],10);pObj.invuln=120;}
+        if(!anyAlive()){endGame(false);return;}
         break;
       }
     }
@@ -957,18 +1120,25 @@ function update(dt) {
   for(let i=gs.powerups.length-1;i>=0;i--){
     const p=gs.powerups[i];p.y+=p.vy*dt;if(p.vx)p.x+=p.vx*dt;
     if(gs.collectPhase&&(p.type==='pizza'||p.type==='freeupgrade')){
-      let tx=gs.player.x,ty=gs.player.y;
-      if(gs.p2){const d1=Math.hypot(gs.player.x-p.x,gs.player.y-p.y),d2=Math.hypot(gs.p2.x-p.x,gs.p2.y-p.y);if(d2<d1){tx=gs.p2.x;ty=gs.p2.y;}}
+      // Attract to nearest player
+      let tx=gs.player.x,ty=gs.player.y,bd=Math.hypot(gs.player.x-p.x,gs.player.y-p.y);
+      for(const pl of [gs.p2,gs.p3,gs.p4]){if(!pl)continue;const d=Math.hypot(pl.x-p.x,pl.y-p.y);if(d<bd){bd=d;tx=pl.x;ty=pl.y;}}
       const dx=tx-p.x,dy=ty-p.y,dist=Math.sqrt(dx*dx+dy*dy);
       if(dist<200){p.x+=dx/dist*2.5*dt;p.y+=dy/dist*2.5*dt;}
     }
     let collected=false;
-    const players=[{pos:gs.player,isP2:false},{pos:gs.p2,isP2:true}];
-    for(const player of players){
+    const allPlayers=[{pos:gs.player,idx:0},{pos:gs.p2,idx:1},{pos:gs.p3,idx:2},{pos:gs.p4,idx:3}];
+    for(const player of allPlayers){
       if(!player.pos) continue;
       if(Math.abs(p.x-player.pos.x)<28&&Math.abs(p.y-player.pos.y)<24){
         if(p.type==='shield') player.pos.shield=true;
-        if(p.type==='pizza'){ if(player.isP2) p2PizzaSlices++; else pizzaSlices++; updatePizzaHUD(); }
+        if(p.type==='pizza'){
+          if(player.idx===0)pizzaSlices++;
+          else if(player.idx===1)p2PizzaSlices++;
+          else if(player.idx===2)p3PizzaSlices++;
+          else p4PizzaSlices++;
+          updatePizzaHUD();
+        }
         if(p.type==='freeupgrade'){const k=p.upgradeKey;if(upgrades[k]<UPGRADE_MAX[k]){upgrades[k]++;gs.freeUpgradeMsg={text:'FREE '+k.toUpperCase()+' UPGRADE!',timer:120};}}
         gs.powerups.splice(i,1);spawnParticles(p.x,p.y,p.type==='pizza'?'#ffcc00':p.type==='freeupgrade'?'#ff80ff':'#50ffa0',8);
         collected=true;break;
@@ -983,8 +1153,11 @@ function update(dt) {
 
   document.getElementById('hud-score').textContent=gs.score;
   const maxL=3+upgrades.armour;
-  document.getElementById('hud-lives').textContent='●'.repeat(Math.max(0,gs.lives))+'○'.repeat(Math.max(0,maxL-gs.lives));
-  if(gs.p2) document.getElementById('hud-p2lives-dots').textContent='●'.repeat(Math.max(0,gs.p2.lives))+'○'.repeat(Math.max(0,maxL-gs.p2.lives));
+  const mkDots=n=>'●'.repeat(Math.max(0,n))+'○'.repeat(Math.max(0,maxL-n));
+  document.getElementById('hud-lives').textContent=mkDots(gs.lives);
+  if(gs.p2) document.getElementById('hud-p2lives-dots').textContent=mkDots(gs.p2.lives);
+  if(gs.p3) document.getElementById('hud-p3lives-dots').textContent=mkDots(gs.p3.lives);
+  if(gs.p4) document.getElementById('hud-p4lives-dots').textContent=mkDots(gs.p4.lives);
 }
 
 // ===== DRAW =====
@@ -1019,6 +1192,18 @@ function draw() {
     g.addColorStop(0,'rgba(255,160,60,0)');g.addColorStop(1,'#ffaa40');
     ctx.fillStyle=g;ctx.shadowColor='#ff8020';ctx.shadowBlur=12;ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
   }
+  for(const b of gs.p3bullets){
+    if(b.dead)continue;
+    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y-18);
+    g.addColorStop(0,'rgba(80,255,128,0)');g.addColorStop(1,'#50ff80');
+    ctx.fillStyle=g;ctx.shadowColor='#20e060';ctx.shadowBlur=12;ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
+  }
+  for(const b of gs.p4bullets){
+    if(b.dead)continue;
+    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y-18);
+    g.addColorStop(0,'rgba(210,80,255,0)');g.addColorStop(1,'#d050ff');
+    ctx.fillStyle=g;ctx.shadowColor='#b020ff';ctx.shadowBlur=12;ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
+  }
   for(const b of gs.aBullets){ctx.fillStyle=b.color;ctx.shadowColor=b.color;ctx.shadowBlur=10;ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;}
   for(const p of gs.particles){ctx.globalAlpha=p.life;ctx.fillStyle=p.color;ctx.shadowColor=p.color;ctx.shadowBlur=8;ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();}
   ctx.globalAlpha=1;ctx.shadowBlur=0;
@@ -1041,8 +1226,11 @@ function draw() {
     ctx.fillStyle='#ff80ff';ctx.font='bold 16px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.shadowColor='#ff80ff';ctx.shadowBlur=12;
     ctx.fillText('⭐ '+gs.freeUpgradeMsg.text,GW/2,80);ctx.shadowBlur=0;ctx.restore();
   }
-  drawShip(gs.player.x,gs.player.y,gs.player.shield,gs.player.invuln,gs.t,false);
-  if(gs.p2) drawShip(gs.p2.x,gs.p2.y,gs.p2.shield,gs.p2.invuln,gs.t,true);
+  drawShip(gs.player.x,gs.player.y,gs.player.shield,gs.player.invuln,gs.t,1);
+  if(gs.p2) drawShip(gs.p2.x,gs.p2.y,gs.p2.shield,gs.p2.invuln,gs.t,2);
+  if(gs.p3) drawShip(gs.p3.x,gs.p3.y,gs.p3.shield,gs.p3.invuln,gs.t,3);
+  if(gs.p4) drawShip(gs.p4.x,gs.p4.y,gs.p4.shield,gs.p4.invuln,gs.t,4);
+  if(gs.walls) drawWalls(gs.walls);
   if(gs.mode==='blitz'){
     const ratio=gs.blitzTime/60;
     ctx.fillStyle='rgba(255,255,255,0.1)';ctx.fillRect(0,GH-5,GW,5);
@@ -1168,7 +1356,7 @@ function toggleHamMenu() {
   if (opening) {
     // Show "Kick" only when host has an active guest connection
     document.getElementById('ham-kick-btn').style.display =
-      (mpRole === 'host' && mpConn) ? 'block' : 'none';
+      (mpRole === 'host' && mpConns.length > 0) ? 'block' : 'none';
   }
 }
 
@@ -1184,13 +1372,20 @@ function hamRestart() {
 
 function hamKick() {
   closeHamMenu();
-  if (!mpConn) return;
-  try { mpConn.send({type:'kicked'}); } catch(e) {}
-  try { mpConn.close(); } catch(e) {}
-  mpConn = null;
-  if (gameState) { gameState.p2 = null; gameState.p2bullets = []; }
-  document.getElementById('coop-badge').style.display    = 'none';
-  document.getElementById('hud-p2lives').style.display   = 'none';
+  if (mpConns.length === 0) return;
+  const idx = mpConns.length - 1; // kick last-connected guest
+  const conn = mpConns[idx];
+  try { conn.send({type:'kicked'}); } catch(e) {}
+  try { conn.close(); } catch(e) {}
+  mpConns.splice(idx, 1);
+  const pKey = 'p'+(idx+2);
+  if(gameState){ gameState[pKey]=null; gameState[pKey+'bullets']=[]; }
+  if(mpConns.length===0){
+    document.getElementById('coop-badge').style.display='none';
+    document.getElementById('hud-p2lives').style.display='none';
+  }
+  document.getElementById('hud-p'+(idx+2)+'lives').style.display='none';
+  updateLobbyParty();
 }
 
 function hamSettings() {
@@ -1202,6 +1397,76 @@ function hamSettings() {
 function hamBackFromSettings() {
   document.getElementById('si-settings-panel').style.display = 'none';
   document.getElementById('si-ham-menu').style.display       = 'flex';
+}
+
+function hamReturnToMenu() {
+  closeHamMenu();
+  if(mpRole==='host'){
+    for(const c of mpConns){ try{c.send({type:'returnToMenu'});}catch(e){} }
+  }
+  showMenu();
+}
+
+function updateLobbyParty() {
+  const list = document.getElementById('lobby-party-list');
+  if(!list) return;
+  list.innerHTML='';
+  // Host row
+  const hr=document.createElement('div'); hr.className='party-row';
+  hr.innerHTML='<span class="party-dot on"></span><span>You (Host)</span><span class="party-you">P1</span>';
+  list.appendChild(hr);
+  // Guest slots (0-2 → P2-P4)
+  for(let i=0;i<3;i++){
+    const row=document.createElement('div'); row.className='party-row';
+    if(i<mpConns.length){
+      row.innerHTML=`<span class="party-dot on"></span><span>Player ${i+2}</span><span class="party-you">P${i+2}</span><button class="party-kick-btn" onclick="lobbyKick(${i})">&#10006;</button>`;
+    } else {
+      row.innerHTML='<span class="party-dot off"></span><span class="party-wait">Waiting\u2026</span>';
+    }
+    list.appendChild(row);
+  }
+}
+
+function lobbyKick(idx) {
+  if(idx>=mpConns.length) return;
+  const conn=mpConns[idx];
+  try{conn.send({type:'kicked'});}catch(e){}
+  try{conn.close();}catch(e){}
+  mpConns.splice(idx,1);
+  updateLobbyParty();
+  const n=mpConns.length;
+  document.getElementById('lobby-status').textContent=n+' player'+(n!==1?'s':'')+' connected ('+n+'/3)';
+  if(n===0) document.getElementById('lobby-start-btn').style.display='none';
+}
+
+function createWalls() {
+  const walls=[], bw=6, bh=5, bs=10, wc=4;
+  const spacing=GW/(wc+1);
+  const wy=GH*0.70;
+  for(let w=0;w<wc;w++){
+    const wx=spacing*(w+1)-(bw*bs)/2;
+    for(let r=0;r<bh;r++){
+      for(let c=0;c<bw;c++){
+        // Arch: skip bottom 2 rows, middle 2 cols
+        if(r>=3&&c>=2&&c<=3) continue;
+        walls.push({x:wx+c*bs+bs/2, y:wy+r*bs+bs/2, w:bs, h:bs, hp:3, maxHp:3});
+      }
+    }
+  }
+  return walls;
+}
+
+function drawWalls(walls) {
+  for(const w of walls){
+    if(w.hp<=0) continue;
+    const frac=w.hp/w.maxHp;
+    ctx.globalAlpha=0.35+0.65*frac;
+    ctx.fillStyle='#50c8ff';
+    ctx.shadowColor='#50c8ff';
+    ctx.shadowBlur=frac>0.6?8:3;
+    ctx.fillRect(w.x-w.w/2,w.y-w.h/2,w.w,w.h);
+  }
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
 }
 
 // Close menu when clicking anywhere else on screen
