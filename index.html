@@ -102,6 +102,7 @@ html, body { width: 100%; height: 100%; background: #06060f; overflow: hidden; f
       <button class="lobby-btn" onclick="createRoom()">Create Room</button>
       <div id="room-code-display" style="display:none">----</div>
       <div id="lobby-status"></div>
+      <button class="lobby-btn" id="lobby-start-btn" style="display:none;margin-top:12px;background:rgba(100,255,150,0.25);border-color:rgba(100,255,150,0.6);color:#64ff96;" onclick="startGame(pendingMode,'host')">&#9654; Start Game</button>
     </div>
     <div class="lobby-section">
       <h3>JOIN A ROOM</h3>
@@ -242,8 +243,8 @@ function createRoom() {
   mpPeer.on('connection', c => {
     mpConn = c; mpRole = 'host';
     setupMPConn(c, 'host');
-    document.getElementById('lobby-status').textContent = 'Player 2 connected! Starting...';
-    setTimeout(() => startGame(pendingMode, 'host'), 800);
+    document.getElementById('lobby-status').textContent = 'Player 2 is ready!';
+    document.getElementById('lobby-start-btn').style.display = 'block';
   });
 }
 
@@ -483,6 +484,7 @@ function pickMode(mode) {
   document.getElementById('lobby-status').textContent='';
   document.getElementById('lobby-error').textContent='';
   document.getElementById('join-code-input').value='';
+  document.getElementById('lobby-start-btn').style.display='none';
 }
 
 function startGame(mode, role) {
