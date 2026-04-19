@@ -191,7 +191,7 @@ let currentMode = 'classic', pendingMode = 'classic';
 let gameState = null, animId = null, keys = {}, touches = {};
 let lastTime = 0, shotCooldown = 0;
 let upgrades = { speed:0, dmg:0, armour:0, rapid:0, triple:0 };
-let pizzaSlices = 0, bossLevel = 1;
+let pizzaSlices = 0, p2PizzaSlices = 0, bossLevel = 1;
 
 const UPGRADE_MAX  = { speed:5, dmg:5, armour:3, rapid:4, triple:1 };
 const UPGRADE_COST = { speed:2, dmg:2, armour:3, rapid:2, triple:5, life:4 };
@@ -290,8 +290,8 @@ function showDisconnect() {
 function onGuestData(data) {
   if (!gameState || data.type !== 'input') return;
   if (!gameState.p2) gameState.p2 = {x:W/2, y:H-55, shield:false, invuln:0, lives:3+upgrades.armour};
-  gameState.p2.x = data.x;
-  gameState.p2.y = data.y;
+  gameState.p2.x = data.x * W;
+  gameState.p2.y = data.y * H;
   if (data.fire && p2ShotCooldown <= 0) {
     p2ShotCooldown = getFireRate();
     gameState.p2bullets.push({x:gameState.p2.x, y:gameState.p2.y-22, dead:false});
@@ -312,6 +312,7 @@ function onHostData(data) {
   guestRemote = data;
   if (data.upgrades) upgrades = data.upgrades;
   if (data.pizzaSlices !== undefined) pizzaSlices = data.pizzaSlices;
+  if (data.p2PizzaSlices !== undefined) p2PizzaSlices = data.p2PizzaSlices;
   if (data.bossLevel !== undefined) bossLevel = data.bossLevel;
   document.getElementById('hud-score').textContent = data.score || 0;
   const maxL = 3 + (upgrades.armour||0);
@@ -325,27 +326,30 @@ function onHostData(data) {
 function sendHostState() {
   if (!mpConn) return;
   const gs = gameState;
-  mpConn.send({
+  const minDim = Math.min(W, H);
+  try { mpConn.send({
     type:'state', score:gs.score, wave:gs.wave, t:gs.t, mode:gs.mode,
     gameOver:gs.gameOver, victory:gs.victory,
     collectPhase:gs.collectPhase||false, collectTimer:gs.collectTimer||0,
-    blitzTime:gs.blitzTime,
+    blitzTime:gs.blitzTime, hostW:W, hostH:H,
     p1lives:gs.lives, p2lives:gs.p2?gs.p2.lives:0,
-    p1:{x:gs.player.x,y:gs.player.y,shield:gs.player.shield,invuln:gs.player.invuln},
-    p2pos:gs.p2?{x:gs.p2.x,y:gs.p2.y,shield:gs.p2.shield,invuln:gs.p2.invuln}:null,
-    aliens:gs.aliens.map(a=>({x:a.x,y:a.y,alive:a.alive,hp:a.hp,type:a.type,color:a.color})),
-    bosses:gs.bosses.map(b=>({x:b.x,y:b.y,hp:b.hp,maxHp:b.maxHp,cfg:b.cfg})),
-    aBullets:gs.aBullets, bullets:gs.bullets.filter(b=>!b.dead),
-    p2bullets:gs.p2bullets.filter(b=>!b.dead), powerups:gs.powerups,
+    p1:{x:gs.player.x/W, y:gs.player.y/H, shield:gs.player.shield, invuln:gs.player.invuln},
+    p2pos:gs.p2?{x:gs.p2.x/W, y:gs.p2.y/H, shield:gs.p2.shield, invuln:gs.p2.invuln}:null,
+    aliens:gs.aliens.map(a=>({x:a.x/W, y:a.y/H, alive:a.alive, hp:a.hp, type:a.type, color:a.color})),
+    bosses:gs.bosses.map(b=>({x:b.x/W, y:b.y/H, hp:b.hp, maxHp:b.maxHp, cfg:{...b.cfg, sizeN:b.cfg.size/minDim}})),
+    aBullets:gs.aBullets.map(b=>({x:b.x/W, y:b.y/H, color:b.color})),
+    bullets:gs.bullets.filter(b=>!b.dead).map(b=>({x:b.x/W, y:b.y/H})),
+    p2bullets:gs.p2bullets.filter(b=>!b.dead).map(b=>({x:b.x/W, y:b.y/H})),
+    powerups:gs.powerups.map(p=>({x:p.x/W, y:p.y/H, type:p.type})),
     challenges:gs.challenges, streak:gs.streak,
-    upgrades, pizzaSlices, bossLevel,
+    upgrades, pizzaSlices, p2PizzaSlices, bossLevel,
     shopOpen:document.getElementById('si-shop').style.display==='flex'
-  });
+  }); } catch(e) {}
 }
 
 function sendGuestInput(fire) {
-  if (!mpConn || !mpConn.open) return;
-  mpConn.send({type:'input', x:guestLocalX, y:guestLocalY, fire});
+  if (!mpConn) return;
+  try { mpConn.send({type:'input', x:guestLocalX/W, y:guestLocalY/H, fire}); } catch(e) {}
 }
 
 // ===== DRAWING =====
@@ -404,11 +408,11 @@ function drawBoss(boss, t) {
   ctx.restore();
 }
 
-function drawShip(x, y, shield, invuln, t, isP2) {
+function drawShip(x, y, shield, invuln, t, isP2, sW, sH) {
   const blink = invuln>0 && Math.floor(t*15)%2===0;
   if (blink) return;
   ctx.save();
-  const sz = Math.min(W,H)*0.045;
+  const sz = Math.min(sW||W, sH||H)*0.045;
   const shipColor = isP2?'#ff9040':'#50c8ff';
   const glowColor = isP2?'#ff6010':'#50c8ff';
   if(upgrades.armour>0){
@@ -505,7 +509,7 @@ function startGame(mode, role) {
   document.getElementById('boss-level-badge').style.display=(mode==='boss'&&!mpRole)?'block':'none';
   document.getElementById('coop-badge').style.display=mpRole?'block':'none';
   document.getElementById('hud-p2lives').style.display=mpRole?'inline':'none';
-  if(mode==='boss'){bossLevel=1;upgrades={speed:0,dmg:0,armour:0,rapid:0,triple:0};pizzaSlices=0;}
+  if(mode==='boss'){bossLevel=1;upgrades={speed:0,dmg:0,armour:0,rapid:0,triple:0};pizzaSlices=0;p2PizzaSlices=0;}
   if(animId) cancelAnimationFrame(animId);
   if(role==='host' && mpConn) { try { mpConn.send({type:'start', mode}); } catch(e){} }
   lastSendTime = 0;
@@ -541,7 +545,7 @@ function checkMobile() {
 }
 
 function updatePizzaHUD() {
-  document.getElementById('hud-pizza-count').textContent=pizzaSlices;
+  document.getElementById('hud-pizza-count').textContent = mpRole==='guest' ? p2PizzaSlices : pizzaSlices;
   document.getElementById('shop-pizza-display').textContent=pizzaSlices;
 }
 
@@ -676,28 +680,36 @@ function drawGuest() {
     drawShip(guestLocalX,guestLocalY,false,0,0,true);
     return;
   }
-  if(r.aliens) for(const a of r.aliens) if(a.alive) alienShape(a.type,a.x,a.y,18,a.color,t);
-  if(r.bosses) for(const b of r.bosses) drawBoss(b,t);
+  const hW=r.hostW||W, hH=r.hostH||H, hMin=Math.min(hW,hH);
+  const gx=v=>v*W, gy=v=>v*H;
+  if(r.aliens) for(const a of r.aliens) if(a.alive) alienShape(a.type,gx(a.x),gy(a.y),18,a.color,t);
+  if(r.bosses) for(const b of r.bosses){
+    const sb={...b, x:gx(b.x), y:gy(b.y), cfg:{...b.cfg, size:(b.cfg.sizeN||b.cfg.size/hMin)*Math.min(W,H)}};
+    drawBoss(sb,t);
+  }
   if(r.bullets) for(const b of r.bullets){
-    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y-18);
+    const bx2=gx(b.x),by2=gy(b.y);
+    const g=ctx.createLinearGradient(bx2,by2,bx2,by2-18);
     g.addColorStop(0,'rgba(130,200,255,0)');g.addColorStop(1,'#a0e0ff');
     ctx.fillStyle=g;ctx.shadowColor='#50c8ff';ctx.shadowBlur=12;
-    ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
+    ctx.fillRect(bx2-2,by2-18,4,18);ctx.shadowBlur=0;
   }
   if(r.p2bullets) for(const b of r.p2bullets){
-    const g=ctx.createLinearGradient(b.x,b.y,b.x,b.y-18);
+    const bx2=gx(b.x),by2=gy(b.y);
+    const g=ctx.createLinearGradient(bx2,by2,bx2,by2-18);
     g.addColorStop(0,'rgba(255,160,60,0)');g.addColorStop(1,'#ffaa40');
     ctx.fillStyle=g;ctx.shadowColor='#ff8020';ctx.shadowBlur=12;
-    ctx.fillRect(b.x-2,b.y-18,4,18);ctx.shadowBlur=0;
+    ctx.fillRect(bx2-2,by2-18,4,18);ctx.shadowBlur=0;
   }
   if(r.aBullets) for(const b of r.aBullets){
     ctx.fillStyle=b.color;ctx.shadowColor=b.color;ctx.shadowBlur=10;
-    ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+    ctx.beginPath();ctx.arc(gx(b.x),gy(b.y),4,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
   }
   if(r.powerups) for(const p of r.powerups){
-    if(p.type==='pizza'){ctx.font=`${16+Math.sin(t*5)*2}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('🍕',p.x,p.y);}
+    const px2=gx(p.x),py2=gy(p.y);
+    if(p.type==='pizza'){ctx.font=`${16+Math.sin(t*5)*2}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('🍕',px2,py2);}
     else if(p.type==='freeupgrade'){
-      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(t*2);
+      ctx.save();ctx.translate(px2,py2);ctx.rotate(t*2);
       ctx.fillStyle='#ff80ff';ctx.shadowColor='#ff80ff';ctx.shadowBlur=20;
       ctx.beginPath();
       for(let i=0;i<5;i++){const a=(Math.PI*2/5)*i-Math.PI/2;const ax=Math.cos(a)*11,ay=Math.sin(a)*11;const bx=Math.cos(a+Math.PI/5)*5,by=Math.sin(a+Math.PI/5)*5;const nx=Math.cos(a+Math.PI*2/5)*11,ny=Math.sin(a+Math.PI*2/5)*11;if(i===0)ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.lineTo(nx,ny);}
@@ -705,12 +717,12 @@ function drawGuest() {
       ctx.fillStyle='#fff';ctx.font='bold 7px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.rotate(-t*2);ctx.fillText('FREE',0,0);ctx.restore();
     }else{
       ctx.fillStyle='#50ffa0';ctx.shadowColor='#50ffa0';ctx.shadowBlur=14;
-      ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#000';ctx.font='bold 9px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('S',p.x,p.y);ctx.shadowBlur=0;
+      ctx.beginPath();ctx.arc(px2,py2,8,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#000';ctx.font='bold 9px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('S',px2,py2);ctx.shadowBlur=0;
     }
   }
-  if(r.p1) drawShip(r.p1.x,r.p1.y,r.p1.shield,r.p1.invuln,t,false);
-  drawShip(guestLocalX,guestLocalY,r.p2pos?r.p2pos.shield:false,r.p2pos?r.p2pos.invuln:0,t,true);
+  if(r.p1) drawShip(gx(r.p1.x),gy(r.p1.y),r.p1.shield,r.p1.invuln,t,false,W,H);
+  drawShip(guestLocalX,H-55,r.p2pos?r.p2pos.shield:false,r.p2pos?r.p2pos.invuln:0,t,true,W,H);
   if(r.collectPhase){
     const secs=Math.ceil(r.collectTimer/60);
     const rem=r.powerups?r.powerups.filter(p=>p.type==='pizza'||p.type==='freeupgrade').length:0;
@@ -870,11 +882,12 @@ function update(dt) {
       if(dist<200){p.x+=dx/dist*2.5*dt;p.y+=dy/dist*2.5*dt;}
     }
     let collected=false;
-    for(const player of[{pos:gs.player},{pos:gs.p2}]){
+    const players=[{pos:gs.player,isP2:false},{pos:gs.p2,isP2:true}];
+    for(const player of players){
       if(!player.pos) continue;
       if(Math.abs(p.x-player.pos.x)<28&&Math.abs(p.y-player.pos.y)<24){
         if(p.type==='shield') player.pos.shield=true;
-        if(p.type==='pizza'){pizzaSlices++;updatePizzaHUD();}
+        if(p.type==='pizza'){ if(player.isP2) p2PizzaSlices++; else pizzaSlices++; updatePizzaHUD(); }
         if(p.type==='freeupgrade'){const k=p.upgradeKey;if(upgrades[k]<UPGRADE_MAX[k]){upgrades[k]++;gs.freeUpgradeMsg={text:'FREE '+k.toUpperCase()+' UPGRADE!',timer:120};}}
         gs.powerups.splice(i,1);spawnParticles(p.x,p.y,p.type==='pizza'?'#ffcc00':p.type==='freeupgrade'?'#ff80ff':'#50ffa0',8);
         collected=true;break;
