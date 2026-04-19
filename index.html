@@ -174,11 +174,19 @@ const canvas = document.getElementById('si-canvas');
 const ctx = canvas.getContext('2d');
 let W = 0, H = 0;
 const GW = 800, GH = 500; // Fixed logical game space
+let gScale = 1, gOffX = 0, gOffY = 0; // letterbox transform
 
 function resize() {
   const wrap = document.getElementById('si-canvas-wrap');
-  W = wrap.clientWidth; H = wrap.clientHeight;
+  W = wrap.clientWidth || window.innerWidth;
+  H = wrap.clientHeight || window.innerHeight;
+  if (W < 1) W = window.innerWidth;
+  if (H < 1) H = window.innerHeight - 50;
   canvas.width = W; canvas.height = H;
+  // Uniform scale: fit GW×GH inside W×H (letterbox/pillarbox)
+  gScale = Math.min(W / GW, H / GH);
+  gOffX  = (W - GW * gScale) / 2;
+  gOffY  = (H - GH * gScale) / 2;
 }
 window.addEventListener('resize', resize);
 
@@ -508,16 +516,22 @@ function startGame(mode, role) {
   if(role==='host' && mpConn) { try { mpConn.send({type:'start', mode}); } catch(e){} }
   lastSendTime = 0;
   if(role==='guest'){
-    resize();
-    guestLocalX=GW*0.6; guestLocalY=GH-55; guestRemote=null;
-    checkMobile(); lastTime=performance.now();
-    animId=requestAnimationFrame(guestLoop);
+    // Defer one frame so flexbox layout computes before resize() reads dimensions
+    requestAnimationFrame(()=>{
+      resize();
+      guestLocalX=GW*0.6; guestLocalY=GH-55; guestRemote=null;
+      checkMobile(); lastTime=performance.now();
+      animId=requestAnimationFrame(guestLoop);
+    });
     return;
   }
-  gameState=initGame(mode);
-  updateChallengeUI();updatePizzaHUD();updateBossLevelBadge();
-  checkMobile(); lastTime=performance.now();
-  animId=requestAnimationFrame(loop);
+  // Defer one frame so flexbox layout computes before resize() reads dimensions
+  requestAnimationFrame(()=>{
+    gameState=initGame(mode);
+    updateChallengeUI();updatePizzaHUD();updateBossLevelBadge();
+    checkMobile(); lastTime=performance.now();
+    animId=requestAnimationFrame(loop);
+  });
 }
 
 function showMenu() {
@@ -637,6 +651,7 @@ function nextWave() {
 
 // ===== LOOPS =====
 function loop(now) {
+  if(gScale<=0)resize(); // guard against bad init
   const dt=Math.min((now-lastTime)/16.67,3);
   lastTime=now;
   update(dt);draw();
@@ -645,6 +660,7 @@ function loop(now) {
 }
 
 function guestLoop(now) {
+  if(gScale<=0)resize(); // guard against bad init
   const dt=Math.min((now-lastTime)/16.67,3);
   lastTime=now;
   const spd=GW*(0.006+(upgrades.speed||0)*0.0014)*dt;
@@ -665,8 +681,11 @@ function guestLoop(now) {
 
 function drawGuest() {
   ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#06060f'; ctx.fillRect(0,0,W,H); // dark bars
   ctx.save();
-  ctx.scale(W/GW, H/GH);
+  ctx.translate(gOffX, gOffY);
+  ctx.scale(gScale, gScale);
+  ctx.beginPath(); ctx.rect(0,0,GW,GH); ctx.clip(); // prevent overflow
   const bg=ctx.createLinearGradient(0,0,0,GH);
   bg.addColorStop(0,'#06060f');bg.addColorStop(1,'#0c0c22');
   ctx.fillStyle=bg;ctx.fillRect(0,0,GW,GH);
@@ -907,8 +926,11 @@ function update(dt) {
 function draw() {
   const gs=gameState;if(!gs)return;
   ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#06060f'; ctx.fillRect(0,0,W,H); // dark bars
   ctx.save();
-  ctx.scale(W/GW, H/GH);
+  ctx.translate(gOffX, gOffY);
+  ctx.scale(gScale, gScale);
+  ctx.beginPath(); ctx.rect(0,0,GW,GH); ctx.clip(); // prevent overflow
   const bg=ctx.createLinearGradient(0,0,0,GH);
   bg.addColorStop(0,'#06060f');bg.addColorStop(1,'#0c0c22');
   ctx.fillStyle=bg;ctx.fillRect(0,0,GW,GH);
@@ -1013,10 +1035,11 @@ mf.addEventListener('click',()=>{if(mpRole==='guest')guestFirePending=true;else 
 
 canvas.addEventListener('pointerdown',e=>{
   const rect=canvas.getBoundingClientRect();
-  const x=(e.clientX-rect.left)*(GW/rect.width);
-  if(mpRole==='guest'){guestLocalX=x;guestFirePending=true;return;}
+  const sx=(e.clientX-rect.left)*(W/rect.width);
+  const lx=Math.max(30, Math.min(GW-30, (sx-gOffX)/gScale));
+  if(mpRole==='guest'){guestLocalX=lx;guestFirePending=true;return;}
   const gs=gameState;
-  if(gs&&!gs.gameOver&&!gs.victory){gs.player.x=x;fireShot();}
+  if(gs&&!gs.gameOver&&!gs.victory){gs.player.x=lx;fireShot();}
 });
 </script>
 </body>
