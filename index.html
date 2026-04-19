@@ -308,6 +308,7 @@ function onHostData(data) {
     return;
   }
   if (data.type !== 'state') return;
+  if (!animId) { startGame(data.mode, 'guest'); }
   guestRemote = data;
   if (data.upgrades) upgrades = data.upgrades;
   if (data.pizzaSlices !== undefined) pizzaSlices = data.pizzaSlices;
@@ -322,7 +323,7 @@ function onHostData(data) {
 }
 
 function sendHostState() {
-  if (!mpConn || !mpConn.open) return;
+  if (!mpConn) return;
   const gs = gameState;
   mpConn.send({
     type:'state', score:gs.score, wave:gs.wave, t:gs.t, mode:gs.mode,
@@ -506,7 +507,8 @@ function startGame(mode, role) {
   document.getElementById('hud-p2lives').style.display=mpRole?'inline':'none';
   if(mode==='boss'){bossLevel=1;upgrades={speed:0,dmg:0,armour:0,rapid:0,triple:0};pizzaSlices=0;}
   if(animId) cancelAnimationFrame(animId);
-  if(role==='host' && mpConn && mpConn.open) mpConn.send({type:'start', mode});
+  if(role==='host' && mpConn) { try { mpConn.send({type:'start', mode}); } catch(e){} }
+  lastSendTime = 0;
   if(role==='guest'){
     resize();
     guestLocalX=W*0.6; guestLocalY=H-55; guestRemote=null;
