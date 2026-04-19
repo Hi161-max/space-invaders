@@ -243,8 +243,6 @@ function createRoom() {
   mpPeer.on('connection', c => {
     mpConn = c; mpRole = 'host';
     setupMPConn(c, 'host');
-    document.getElementById('lobby-status').textContent = 'Player 2 is ready!';
-    document.getElementById('lobby-start-btn').style.display = 'block';
   });
 }
 
@@ -267,7 +265,14 @@ function joinRoom() {
 }
 
 function setupMPConn(conn, role) {
-  conn.on('open', () => { if (role==='guest') document.getElementById('lobby-status').textContent = 'Connected! Waiting for host...'; });
+  conn.on('open', () => {
+    if (role === 'guest') {
+      document.getElementById('lobby-status').textContent = 'Connected! Waiting for host...';
+    } else {
+      document.getElementById('lobby-status').textContent = 'Player 2 is ready!';
+      document.getElementById('lobby-start-btn').style.display = 'block';
+    }
+  });
   conn.on('data', data => { if (role==='guest') onHostData(data); else onGuestData(data); });
   conn.on('close', () => { if (gameState && !gameState.gameOver && !gameState.victory) showDisconnect(); });
   conn.on('error', () => showDisconnect());
