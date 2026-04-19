@@ -298,6 +298,10 @@ function onGuestData(data) {
 
 function onHostData(data) {
   if (data.type !== 'state') return;
+  // First state received — launch the guest game screen
+  if (!animId) {
+    startGame(data.mode, 'guest');
+  }
   guestRemote = data;
   if (data.upgrades) upgrades = data.upgrades;
   if (data.pizzaSlices !== undefined) pizzaSlices = data.pizzaSlices;
